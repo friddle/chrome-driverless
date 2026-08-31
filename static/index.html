@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chrome Driverless</title>
+<style>
+:root {
+  --bg: #0b0e14; --panel: #11151c; --panel2: #161b24; --border: #232a36;
+  --text: #d6dde6; --muted: #8b95a3; --accent: #4f8cff; --accent2: #22c55e;
+  --danger: #f87171; --warn: #eab308; --radius: 12px;
+  --mono: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; }
+body { font-family:-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; background:var(--bg); color:var(--text); overflow:hidden; font-size:13px; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-thumb { background:#2a3341; border-radius:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+
+/* ---------- 布局骨架 ---------- */
+#main-ui { display:flex; flex-direction:column; height:100vh; }
+.header { display:flex; align-items:center; gap:10px; padding:0 16px; height:48px; background:var(--panel); border-bottom:1px solid var(--border); flex:none; }
+.header .logo { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:var(--accent); }
+.header .logo .dot { width:9px; height:9px; border-radius:50%; background:var(--accent2); box-shadow:0 0 8px var(--accent2); }
+.header .spacer { flex:1; }
+.badge { padding:3px 10px; border-radius:99px; font-size:11px; font-weight:600; letter-spacing:.5px; }
+.badge-ok { background:rgba(34,197,94,.15); color:var(--accent2); border:1px solid rgba(34,197,94,.35); }
+.badge-busy { background:rgba(248,113,113,.15); color:var(--danger); border:1px solid rgba(248,113,113,.35); }
+.badge-idle { background:var(--panel2); color:var(--muted); border:1px solid var(--border); }
+
+/* ---------- Tab 条（profile 置顶 + 浏览器 tab） ---------- */
+.tabstrip { display:flex; align-items:flex-end; gap:2px; padding:8px 12px 0; background:var(--panel); border-bottom:1px solid var(--border); flex:none; overflow-x:auto; }
+.profile-tab { display:flex; align-items:center; gap:6px; padding:7px 12px; margin-right:8px; margin-bottom:6px; background:var(--panel2); border:1px solid var(--border); border-radius:10px 10px 0 0; color:var(--muted); font-size:12px; white-space:nowrap; }
+.profile-tab select { background:transparent; border:none; color:var(--text); font-size:12px; outline:none; max-width:140px; cursor:pointer; }
+.profile-tab select option { background:var(--panel2); }
+.btab { display:flex; align-items:center; gap:8px; padding:7px 10px 7px 14px; margin-bottom:6px; min-width:120px; max-width:230px;
+  background:var(--panel2); border:1px solid var(--border); border-bottom:none; border-radius:10px 10px 0 0; cursor:pointer; color:var(--muted); position:relative; transition:background .15s,color .15s; }
+.btab:hover { background:#1b2230; color:var(--text); }
+.btab.active { background:var(--bg); color:var(--text); border-color:#2c3545; }
+.btab.active::after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--bg); }
+.btab .t { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.btab .tag { font-size:10px; color:var(--accent); background:rgba(79,140,255,.12); padding:1px 6px; border-radius:6px; max-width:80px; overflow:hidden; text-overflow:ellipsis; }
+.btab .x { width:18px; height:18px; display:flex; align-items:center; justify-content:center; border-radius:5px; color:var(--muted); font-size:13px; flex:none; }
+.btab .x:hover { background:rgba(248,113,113,.2); color:var(--danger); }
+.btab.plus { min-width:34px; max-width:34px; padding:7px 0; justify-content:center; font-size:15px; color:var(--muted); border:1px solid var(--border); border-bottom:none; }
+.btab.plus:hover { color:var(--accent); }
+
+/* ---------- 主体两栏 ---------- */
+.main { display:flex; gap:12px; padding:12px; flex:1; min-height:0; }
+.left { flex:1; display:flex; flex-direction:column; gap:12px; min-width:0; }
+.right { width:390px; flex:none; display:flex; flex-direction:column; gap:12px; min-height:0; }
+
+/* ---------- 模块卡片 ---------- */
+.card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:12px; }
+.card .card-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; user-select:none; }
+.card .card-head h2 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; font-weight:600; }
+.card .card-head .icon { font-size:13px; }
+.card .card-head .spacer { flex:1; }
+.collapse-arrow { cursor:pointer; color:var(--muted); font-size:11px; transition:transform .15s; padding:2px 4px; }
+.card.collapsed .card-body { display:none; }
+.card.collapsed .collapse-arrow { transform:rotate(-90deg); }
+
+/* ---------- 按钮体系 ---------- */
+.btn { padding:6px 12px; border:1px solid var(--border); border-radius:8px; background:var(--panel2); color:var(--text); cursor:pointer; font-size:12px; transition:all .12s; white-space:nowrap; }
+.btn:hover { background:#202936; border-color:#37424f; }
+.btn:disabled { opacity:.4; cursor:not-allowed; }
+.btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.btn-primary:hover { background:#3b7bef; border-color:#3b7bef; }
+.btn-danger { background:rgba(248,113,113,.12); border-color:rgba(248,113,113,.4); color:var(--danger); }
+.btn-danger:hover { background:rgba(248,113,113,.22); }
+.btn.on { background:rgba(34,197,94,.15); border-color:rgba(34,197,94,.5); color:var(--accent2); }
+.btngroup { display:inline-flex; border:1px solid var(--border); border-radius:9px; overflow:hidden; background:var(--panel2); }
+.btngroup .btn { border:none; border-radius:0; background:transparent; }
+.btngroup .btn + .btn { border-left:1px solid var(--border); }
+.btngroup .btn:hover { background:#202936; }
+.btngroup .btn.on { background:rgba(34,197,94,.15); }
+.input { padding:7px 11px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:12px; outline:none; transition:border .12s; }
+.input:focus { border-color:var(--accent); }
+select.input, select.btn { appearance:none; -webkit-appearance:none; padding-right:22px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b95a3' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 8px center; }
+
+/* ---------- 浏览器视口（多图层） ---------- */
+.browser-card { flex:1; display:flex; flex-direction:column; min-height:0; padding:12px; }
+.browser-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.urlbar { display:flex; gap:6px; flex:1; min-width:220px; }
+.urlbar .input { flex:1; }
+#vp-outer { position:relative; flex:1; min-height:220px; background:#05070b; border-radius:10px; overflow:hidden; outline:none; user-select:none; cursor:crosshair; border:1px solid var(--border); }
+#vp-outer.panning { cursor:grabbing; }
+#vp-world { position:absolute; transform-origin:0 0; }
+#vp-world img { display:block; width:100%; height:100%; image-rendering:auto; }
+.layer { position:absolute; inset:0; pointer-events:none; }
+#layer-elems .hl { position:absolute; border:2px solid #ff4d4f; background:rgba(255,77,79,.12); border-radius:3px; box-shadow:0 0 0 1px rgba(0,0,0,.5); }
+#layer-cursor .cx { position:absolute; width:22px; height:22px; margin:-11px 0 0 -11px; }
+#layer-cursor .cx::before { content:''; position:absolute; inset:0; border:2px solid var(--accent); border-radius:50% 50% 50% 4px; transform:rotate(-45deg); background:rgba(79,140,255,.15); }
+#layer-cursor .guide-v { position:absolute; top:0; bottom:0; width:1px; background:rgba(79,140,255,.25); }
+#layer-cursor .guide-h { position:absolute; left:0; right:0; height:1px; background:rgba(79,140,255,.25); }
+#vp-hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#3d4654; font-size:13px; pointer-events:none; text-align:center; padding:0 20px; }
+#vp-zoombadge { position:absolute; right:10px; bottom:8px; background:rgba(11,14,20,.8); border:1px solid var(--border); border-radius:7px; padding:3px 9px; font-size:11px; color:var(--muted); font-family:var(--mono); pointer-events:none; }
+
+/* ---------- 触摸板 ---------- */
+.trackpad-card { flex:none; display:flex; gap:12px; }
+#trackpad { flex:1; height:158px; background:#0a0d13; border:1px solid var(--border); border-radius:10px; position:relative; overflow:hidden;
+  background-image:radial-gradient(#1d2530 1px, transparent 1px); background-size:18px 18px; touch-action:none; cursor:pointer; }
+#trackpad.pressing { border-color:var(--accent); box-shadow:inset 0 0 24px rgba(79,140,255,.15); }
+#tp-dot { position:absolute; width:14px; height:14px; border-radius:50%; background:rgba(79,140,255,.9); box-shadow:0 0 10px rgba(79,140,255,.7); transform:translate(-50%,-50%); pointer-events:none; }
+.tp-side { width:160px; flex:none; display:flex; flex-direction:column; gap:8px; }
+.tp-side .row { display:flex; gap:6px; }
+.tp-side .hint { font-size:11px; color:var(--muted); line-height:1.7; }
+.tp-side .hint b { color:var(--text); font-weight:600; }
+
+/* ---------- 状态 ---------- */
+.status-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.status-item { background:var(--bg); padding:7px 10px; border-radius:8px; border:1px solid var(--border); }
+.status-item .label { font-size:10px; color:var(--muted); }
+.status-item .value { font-size:12px; margin-top:2px; }
+#pages-list { margin-top:8px; font-size:11px; font-family:var(--mono); word-break:break-all; color:var(--accent); line-height:1.7; }
+
+/* ---------- AI 任务 ---------- */
+#ai-log { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-family:var(--mono); font-size:11px; max-height:150px; overflow-y:auto; line-height:1.7; }
+.ai-input-row { display:flex; gap:6px; margin-top:8px; }
+.ai-input-row .input { flex:1; }
+#ai-running { display:none; align-items:center; gap:8px; margin-top:8px; font-size:11px; color:var(--accent); }
+.spinner { width:12px; height:12px; border:2px solid rgba(79,140,255,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ---------- 元素 ---------- */
+.elems-ops { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; align-items:center; }
+.elems-ops .input { min-width:120px; }
+#elements-list { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px; font-family:var(--mono); font-size:11px; max-height:190px; overflow-y:auto; }
+.el-item { display:flex; align-items:center; gap:6px; padding:4px 7px; border-radius:6px; cursor:pointer; line-height:1.5; }
+.el-item:hover { background:rgba(79,140,255,.1); }
+.el-item .etag { color:var(--accent); flex:none; }
+.el-item .etxt { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.el-item .ecoord { color:#4d5765; flex:none; font-size:10px; }
+
+/* ---------- 日志 ---------- */
+.log-card { flex:1; display:flex; flex-direction:column; min-height:120px; }
+.terminal { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-family:var(--mono); font-size:11px; overflow-y:auto; flex:1; line-height:1.7; }
+.log-INFO { color:#7ee787; } .log-ERROR { color:#ff7b72; } .log-WARN { color:#d29922; }
+.log-time { color:#484f58; } .log-user { color:#58a6ff; }
+
+/* ---------- 弹窗（AI 设置） ---------- */
+.modal-mask { position:fixed; inset:0; background:rgba(0,0,0,.65); backdrop-filter:blur(3px); display:none; align-items:center; justify-content:center; z-index:200; }
+.modal-mask.show { display:flex; }
+.modal { width:470px; background:var(--panel); border:1px solid #2c3545; border-radius:14px; padding:20px; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+.modal h3 { font-size:15px; margin-bottom:4px; }
+.modal .sub { font-size:11px; color:var(--muted); margin-bottom:14px; line-height:1.6; }
+.modal .field { margin-bottom:12px; }
+.modal .field label { display:block; font-size:11px; color:var(--muted); margin-bottom:5px; }
+.modal .field .input { width:100%; }
+.presets { display:flex; gap:6px; margin-bottom:14px; }
+.modal .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+#ai-test-result { font-size:11px; font-family:var(--mono); margin-top:10px; line-height:1.6; word-break:break-all; display:none; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; max-height:130px; overflow-y:auto; }
+#ai-test-result.ok { color:#7ee787; } #ai-test-result.bad { color:#ff7b72; }
+
+/* ---------- toast ---------- */
+#toast { position:fixed; top:60px; left:50%; transform:translateX(-50%) translateY(-8px); background:#1b2230; border:1px solid #2c3545; color:var(--text); padding:9px 18px; border-radius:10px; font-size:12px; opacity:0; pointer-events:none; transition:all .25s; z-index:300; box-shadow:0 8px 30px rgba(0,0,0,.4); }
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+#toast.err { border-color:rgba(248,113,113,.5); color:var(--danger); }
+</style>
+</head>
+<body>
+
+<!-- ======================= 主界面 ======================= -->
+<div id="main-ui">
+
+  <div class="header">
+    <span class="logo"><span class="dot"></span>Chrome Driverless</span>
+    <span class="spacer"></span>
+    <span id="task-badge" class="badge badge-idle">IDLE</span>
+    <button class="btn" onclick="openAiSettings()" title="AI 模型/地址设置">⚙ AI 设置</button>
+    <button class="btn" onclick="screenshot()" title="截图">📷 截图</button>
+  </div>
+
+  <!-- Tab 条：profile 置顶 + 浏览器 tab（✕ 关闭） -->
+  <div class="tabstrip" id="tabstrip">
+    <span class="profile-tab" title="Profile（登录态隔离，切换会重启浏览器）">👤
+      <select id="profile-select" onchange="selectProfile(this.value)"></select>
+    </span>
+    <span id="tab-items" style="display:flex;gap:2px;align-items:flex-end;"></span>
+    <span class="btab plus" onclick="newTab()" title="新开 Tab">＋</span>
+  </div>
+
+  <div class="main">
+    <!-- ================= 左栏：浏览器视口 + 触摸板 ================= -->
+    <div class="left">
+      <div class="card browser-card">
+        <div class="browser-toolbar">
+          <div class="btngroup">
+            <button class="btn" onclick="screenshot()" title="截图">截图</button>
+            <button class="btn" onclick="goBack()" title="回退">⬅ 回退</button>
+            <button class="btn" onclick="reload()" title="刷新">⟳ 刷新</button>
+            <button class="btn" id="proxy-btn" onclick="toggleProxy()">🌐 代理</button>
+          </div>
+          <div class="urlbar">
+            <input class="input" id="url-input" placeholder="输入网址回车导航 (https://...)" onkeydown="if(event.key==='Enter')gotoUrl()">
+            <button class="btn" onclick="gotoUrl()">前往</button>
+          </div>
+          <div class="btngroup">
+            <button class="btn" onclick="vpZoom(1/1.25)" title="缩小">−</button>
+            <button class="btn" onclick="vpReset()" title="适应窗口（双击视口重置）" style="min-width:54px;" id="zoom-label">100%</button>
+            <button class="btn" onclick="vpZoom(1.25)" title="放大">＋</button>
+          </div>
+          <button class="btn" onclick="openDevtools()" title="打开 Chrome DevTools">🛠 DevTools</button>
+          <label style="display:flex;align-items:center;font-size:11px;color:var(--muted);gap:4px;" title="定时自动截图跟随页面变化">
+            <input type="checkbox" id="follow-chk" checked> 跟随
+          </label>
+        </div>
+        <!-- 多图层视口：截图层 / 元素高亮层 / 虚拟光标层 -->
+        <div id="vp-outer" tabindex="0">
+          <div id="vp-world">
+            <img id="vp-img" alt="">
+            <div class="layer" id="layer-elems"></div>
+            <div class="layer" id="layer-cursor">
+              <div class="guide-v"></div><div class="guide-h"></div><div class="cx"></div>
+            </div>
+          </div>
+          <div id="vp-hint">点击截图 / 导航后查看页面<br>（单击转发点击 · 拖动平移 · 滚轮滚动页面 · Ctrl+滚轮缩放 · 双击重置）</div>
+          <div id="vp-zoombadge">100%</div>
+        </div>
+      </div>
+
+      <!-- 触摸板：滑动移动光标 / 按压-抬起点击（整板一致）/ 按住拖拽 / 双指滚动 -->
+      <div class="card trackpad-card">
+        <div id="trackpad"><div id="tp-dot"></div></div>
+        <div class="tp-side">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;">触摸板</div>
+          <div class="row">
+            <button class="btn on" id="tp-btn-left" style="flex:1;" onclick="tpButton('left')">左键</button>
+            <button class="btn" id="tp-btn-right" style="flex:1;" onclick="tpButton('right')">右键</button>
+          </div>
+          <div class="hint">
+            <b>滑动</b> 移动光标 · <b>按压/抬起</b> 点击（整板一致）<br>
+            <b>按住滑动</b> 页面拖拽 · <b>双指/滚轮</b> 滚动
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 右栏：状态 → AI 任务 → 元素 → 日志 ================= -->
+    <div class="right">
+      <div class="card">
+        <div class="card-head"><span class="icon">📊</span><h2>状态</h2></div>
+        <div class="card-body">
+          <div class="status-grid">
+            <div class="status-item"><div class="label">Browser</div><div class="value" id="st-browser">-</div></div>
+            <div class="status-item"><div class="label">任务</div><div class="value" id="st-task">-</div></div>
+            <div class="status-item"><div class="label">auth.json</div><div class="value" id="st-auth">-</div></div>
+            <div class="status-item"><div class="label">Profile</div><div class="value" id="st-profile">-</div></div>
+          </div>
+          <div id="pages-list"></div>
+        </div>
+      </div>
+
+      <div class="card" id="ai-card">
+        <div class="card-head"><span class="icon">🤖</span><h2>AI 任务</h2><span class="spacer"></span>
+          <button class="btn" onclick="openAiSettings()" title="模型/地址设置">⚙ 设置</button>
+          <span class="collapse-arrow" onclick="toggleCard('ai-card')">▼</span>
+        </div>
+        <div class="card-body">
+          <div id="ai-log"></div>
+          <div id="ai-running"><span class="spinner"></span><span id="ai-running-text">AI 执行中…</span><span style="flex:1"></span>
+            <button class="btn btn-danger" onclick="cancelAiTask()">停止</button>
+          </div>
+          <div class="ai-input-row">
+            <input class="input" id="cmd-input" placeholder="AI 指令：找到导出按钮并点击 / 分析当前页面" onkeydown="if(event.key==='Enter')doCmd()" autocomplete="off">
+            <button class="btn btn-primary" id="ai-run-btn" onclick="doCmd()">执行</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="elems-card">
+        <div class="card-head"><span class="icon">🧩</span><h2>元素</h2><span class="spacer"></span>
+          <button class="btn" onclick="showElements(true)">↻ 刷新元素</button>
+          <span class="collapse-arrow" onclick="toggleCard('elems-card')">▼</span>
+        </div>
+        <div class="card-body">
+          <div class="elems-ops">
+            <input class="input" id="sel-input" placeholder="选择器或坐标 (#id / 200,300)" style="flex:1;min-width:140px;" onkeydown="if(event.key==='Enter')doClick()">
+            <button class="btn" onclick="doClick()">点击</button>
+            <button class="btn" onclick="doType()">输入</button>
+            <button class="btn" onclick="clearInputs()">清空输入</button>
+            <select class="btn" id="key-select" onchange="doKey(this.value)">
+              <option value="">按键</option>
+              <option value="Enter">Enter</option><option value="Tab">Tab</option>
+              <option value="Escape">Esc</option><option value="Backspace">Backspace</option>
+              <option value="ArrowUp">↑</option><option value="ArrowDown">↓</option>
+              <option value="ArrowLeft">←</option><option value="ArrowRight">→</option>
+            </select>
+          </div>
+          <div class="elems-ops">
+            <input class="input" id="type-input" placeholder="要输入的文本" style="flex:1;" onkeydown="if(event.key==='Enter')doType()">
+            <label style="display:flex;align-items:center;font-size:11px;color:var(--muted);gap:4px;" title="勾选后按键直达 Chrome（点视口区生效）">
+              <input type="checkbox" id="kb-fwd"> 键盘转发
+            </label>
+          </div>
+          <div id="elements-list"><div style="color:var(--muted);padding:6px;">点击「刷新元素」加载可交互元素；点击条目即点击该元素</div></div>
+        </div>
+      </div>
+
+      <div class="card log-card">
+        <div class="card-head"><span class="icon">📜</span><h2>日志</h2></div>
+        <div class="terminal" id="log-terminal"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= AI 设置弹窗 ======================= -->
+<div class="modal-mask" id="ai-settings-mask">
+  <div class="modal">
+    <h3>⚙ AI 设置</h3>
+    <div class="sub">模型与 API 地址可自定义（OpenAI 兼容 /chat/completions）；保存后立即生效并持久化，AI 任务使用该配置</div>
+    <div class="presets">
+      <button class="btn" onclick="aiPreset('deepseek')">DeepSeek 官方</button>
+      <button class="btn" onclick="aiPreset('flash')">Flash</button>
+    </div>
+    <div class="field"><label>模型</label><input class="input" id="ai-model" placeholder="deepseek-chat"></div>
+    <div class="field"><label>Base URL</label><input class="input" id="ai-baseurl" placeholder="https://api.deepseek.com/v1"></div>
+    <div class="field"><label>API Key（留空 = 沿用服务端已配置密钥）</label><input class="input" id="ai-key" type="password" placeholder="sk-..."></div>
+    <div id="ai-test-result"></div>
+    <div class="actions">
+      <button class="btn" onclick="closeAiSettings()">关闭</button>
+      <button class="btn" onclick="aiTest()">测试连接</button>
+      <button class="btn btn-primary" onclick="aiSave()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = window.location.origin + '/mcp';
+let proxyEnabled = false;
+
+/* ================= 基础工具 ================= */
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.className = '', 2600);
+}
+function toggleCard(id) { document.getElementById(id).classList.toggle('collapsed'); }
+function escHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escAttr(s) { return escHtml(s); }
+
+async function mcp(method, params = {}) {
+  try {
+    const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method, params }) });
+    return await r.json();
+  } catch (e) { addChat('error', '请求失败: ' + e.message); return null; }
+}
+function addChat(type, text) {
+  const el = document.getElementById('ai-log');
+  const div = document.createElement('div');
+  div.className = 'log-' + (type === 'error' ? 'ERROR' : 'INFO');
+  div.innerHTML = `<span class="log-time">${new Date().toTimeString().slice(0, 8)}</span> ${text}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ================= Tab 条 ================= */
+let tabsCache = [];
+async function refreshTabs() {
+  const r = await mcp('pw/tabs');
+  const box = document.getElementById('tab-items');
+  if (!r || r.error) { return; }
+  tabsCache = r.result?.tabs || [];
+  box.innerHTML = tabsCache.map((t, i) => `
+    <span class="btab ${t.active ? 'active' : ''}" onclick="selectTab(${i})" title="${escAttr(t.url)}">
+      ${t.tag ? `<span class="tag">${escHtml(t.tag)}</span>` : ''}
+      <span class="t">${escHtml((t.title || t.url || 'about:blank').slice(0, 40))}</span>
+      <span class="x" onclick="event.stopPropagation();closeTab(${i})" title="关闭">✕</span>
+    </span>`).join('');
+}
+async function selectTab(i) {
+  const r = await mcp('pw/tab_select', { index: i });
+  if (r?.result?.image) showShot(r);
+  addChat('INFO', `已切到 Tab #${i}`);
+  refreshTabs();
+}
+async function closeTab(i) {
+  const r = await mcp('pw/tab_close', { index: i });
+  if (r?.error) { toast(r.error.message, true); return; }
+  addChat('INFO', `已关 Tab #${i}`);
+  refreshTabs(); scheduleShot(300);
+}
+async function newTab() {
+  const r = await mcp('pw/new_tab', {});
+  if (r?.error) { toast(r.error.message, true); return; }
+  addChat('INFO', '新开 Tab');
+  if (r?.result?.image) showShot(r);
+  refreshTabs();
+  document.getElementById('url-input').focus();
+}
+
+/* ================= Profile ================= */
+async function refreshProfiles() {
+  const r = await mcp('pw/profile_list');
+  if (!r || r.error) return;
+  const sel = document.getElementById('profile-select');
+  const ps = r.result?.profiles || [];
+  sel.innerHTML = ps.map(p =>
+    `<option value="${escAttr(p.name)}" ${p.active ? 'selected' : ''}>${escHtml(p.name)}${p.logged_in ? ' ✅' : ' ○'}</option>`).join('');
+  document.getElementById('st-profile').textContent = r.result?.active || '-';
+}
+async function selectProfile(name) {
+  if (!name) return;
+  if (!confirm(`切换到 profile "${name}"？浏览器将重启（各 profile 登录态独立保留）`)) { refreshProfiles(); return; }
+  const r = await mcp('pw/profile_set', { name });
+  if (r?.error) toast(r.error.message, true); else addChat('INFO', `已切换 profile: ${name}`);
+  refreshProfiles(); refreshTabs(); scheduleShot(500);
+}
+
+/* ================= 工具栏 ================= */
+async function toggleProxy() {
+  proxyEnabled = !proxyEnabled;
+  document.getElementById('proxy-btn').classList.toggle('on', proxyEnabled);
+  const r = await mcp('pw/set_proxy', { enable: proxyEnabled });
+  if (r?.result) { addChat('INFO', '代理已' + (proxyEnabled ? '开启' : '关闭')); scheduleShot(400); }
+}
+async function goBack() { addChat('INFO', '回退'); showShot(await mcp('pw/back')); }
+async function reload() { addChat('INFO', '刷新'); showShot(await mcp('pw/reload')); }
+async function nav(url) {
+  addChat('INFO', '导航: ' + url);
+  const r = await mcp('pw/navigate', { url });
+  showShot(r);
+  showElements(false);
+}
+async function gotoUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) return;
+  nav(url.startsWith('http') ? url : 'https://' + url);
+}
+
+/* ================= 视口（多图层 + 缩放 + 拖拽 + 点击穿透） ================= */
+const VP = { natW: 1280, natH: 900, scale: 1, tx: 0, ty: 0, fit: 1, elems: [], hl: null,
+             cursor: { x: 640, y: 450 } };
+const vpOuter = document.getElementById('vp-outer');
+const vpWorld = document.getElementById('vp-world');
+const vpImg = document.getElementById('vp-img');
+
+function vpApply() {
+  vpWorld.style.transform = `translate(${VP.tx}px, ${VP.ty}px) scale(${VP.scale})`;
+  const pct = Math.round(VP.scale / VP.fit * 100) + '%';
+  document.getElementById('vp-zoombadge').textContent = pct;
+  document.getElementById('zoom-label').textContent = pct;
+  vpDrawCursor();
+}
+function vpFit() {
+  const r = vpOuter.getBoundingClientRect();
+  if (VP.natW < 2 || r.width < 10) return;
+  VP.fit = Math.min(r.width / VP.natW, r.height / VP.natH) || 1;
+  VP.scale = VP.fit;
+  VP.tx = (r.width - VP.natW * VP.scale) / 2;
+  VP.ty = (r.height - VP.natH * VP.scale) / 2;
+  vpApply();
+}
+function vpReset() { vpFit(); }
+function vpZoom(factor, cx, cy) {
+  const r = vpOuter.getBoundingClientRect();
+  cx = cx ?? r.width / 2; cy = cy ?? r.height / 2;
+  const ns = Math.min(Math.max(VP.scale * factor, VP.fit * 0.4), VP.fit * 8);
+  const px = (cx - VP.tx) / VP.scale, py = (cy - VP.ty) / VP.scale;
+  VP.tx = cx - px * ns; VP.ty = cy - py * ns; VP.scale = ns;
+  vpApply();
+}
+function vpMapClient(cx, cy) {
+  const r = vpImg.getBoundingClientRect();
+  if (r.width < 2) return { x: 0, y: 0 };
+  const px = (cx - r.left) / r.width * VP.natW;
+  const py = (cy - r.top) / r.height * VP.natH;
+  return { x: Math.max(0, Math.min(VP.natW, px)), y: Math.max(0, Math.min(VP.natH, py)) };
+}
+function vpDrawCursor() {
+  const layer = document.getElementById('layer-cursor');
+  const cx = layer.querySelector('.cx'), gv = layer.querySelector('.guide-v'), gh = layer.querySelector('.guide-h');
+  cx.style.left = VP.cursor.x + 'px'; cx.style.top = VP.cursor.y + 'px';
+  gv.style.left = VP.cursor.x + 'px'; gh.style.top = VP.cursor.y + 'px';
+  const tp = document.getElementById('tp-dot');
+  const pad = document.getElementById('trackpad').getBoundingClientRect();
+  tp.style.left = (VP.cursor.x / VP.natW * pad.width) + 'px';
+  tp.style.top = (VP.cursor.y / VP.natH * pad.height) + 'px';
+}
+function vpDrawHl() {
+  const layer = document.getElementById('layer-elems');
+  if (!VP.hl) { layer.innerHTML = ''; return; }
+  const h = VP.hl;
+  layer.innerHTML = `<div class="hl" style="left:${h.x - h.w / 2}px;top:${h.y - h.h / 2}px;width:${h.w}px;height:${h.h}px"></div>`;
+}
+vpImg.onload = () => {
+  document.getElementById('vp-hint').style.display = 'none';
+  const changed = vpImg.naturalWidth !== VP.natW;
+  VP.natW = vpImg.naturalWidth || 1280;
+  VP.natH = vpImg.naturalHeight || 900;
+  vpWorld.style.width = VP.natW + 'px';
+  vpWorld.style.height = VP.natH + 'px';
+  if (changed) vpFit(); else vpApply();
+};
+
+/* 视口指针：拖动=平移 / 单击=远程点击 / 右键=远程右键 */
+let vpPress = null;
+vpOuter.addEventListener('pointerdown', (e) => {
+  if (e.button === 2) return;
+  vpPress = { x: e.clientX, y: e.clientY, tx: VP.tx, ty: VP.ty, moved: false, id: e.pointerId };
+  vpOuter.setPointerCapture(e.pointerId);
+});
+vpOuter.addEventListener('pointermove', (e) => {
+  if (!vpPress || e.pointerId !== vpPress.id) return;
+  const dx = e.clientX - vpPress.x, dy = e.clientY - vpPress.y;
+  if (!vpPress.moved && Math.hypot(dx, dy) > 5) { vpPress.moved = true; vpOuter.classList.add('panning'); }
+  if (vpPress.moved) { VP.tx = vpPress.tx + dx; VP.ty = vpPress.ty + dy; vpApply(); }
+});
+vpOuter.addEventListener('pointerup', (e) => {
+  if (!vpPress || e.pointerId !== vpPress.id) return;
+  const wasClick = !vpPress.moved;
+  vpPress = null;
+  vpOuter.classList.remove('panning');
+  if (!wasClick) return;
+  const p = vpMapClient(e.clientX, e.clientY);
+  VP.cursor = p; vpApply();
+  remoteClickAt(p.x, p.y, 'left');
+});
+vpOuter.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const p = vpMapClient(e.clientX, e.clientY);
+  VP.cursor = p; vpApply();
+  remoteClickAt(p.x, p.y, 'right');
+});
+vpOuter.addEventListener('dblclick', () => vpReset());
+vpOuter.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) {
+    const r = vpOuter.getBoundingClientRect();
+    vpZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+    return;
+  }
+  const p = vpMapClient(e.clientX, e.clientY);
+  const unit = e.deltaMode === 1 ? 16 : 1;
+  throttledScroll(p.x, p.y, e.deltaX * unit, e.deltaY * unit);
+}, { passive: false });
+
+async function remoteClickAt(x, y, button) {
+  await mcp('pw/mouse_down', { x, y, button });
+  showShot(await mcp('pw/mouse_up', { x, y, button }));
+}
+
+/* ================= 触摸板 ================= */
+let tpButtonMode = 'left';
+function tpButton(b) {
+  tpButtonMode = b;
+  document.getElementById('tp-btn-left').classList.toggle('on', b === 'left');
+  document.getElementById('tp-btn-right').classList.toggle('on', b === 'right');
+}
+const tpEl = document.getElementById('trackpad');
+let tpPtrs = new Map();      // pointerId -> {x,y}
+let tpPressing = false;
+let tpMoveTimer = null;      // mouse_move 节流（80ms）
+let tpPending = null;
+let tpScrollT = 0;
+
+function tpPadSize() { const r = tpEl.getBoundingClientRect(); return { w: r.width || 1, h: r.height || 1 }; }
+function tpMoveCursor(dx, dy) {
+  const { w, h } = tpPadSize();
+  const sens = 1.15;
+  VP.cursor.x = Math.max(0, Math.min(VP.natW, VP.cursor.x + dx * (VP.natW / w) * sens));
+  VP.cursor.y = Math.max(0, Math.min(VP.natH, VP.cursor.y + dy * (VP.natH / h) * sens));
+  vpDrawCursor();
+  tpPending = { x: VP.cursor.x, y: VP.cursor.y };
+  if (!tpMoveTimer) {
+    tpMoveTimer = setTimeout(async () => {
+      tpMoveTimer = null;
+      if (tpPending) { await mcp('pw/mouse_move', tpPending); }
+    }, 80);
+  }
+}
+tpEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  tpEl.setPointerCapture(e.pointerId);
+  tpPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (tpPtrs.size === 1) {           // 单指按压 = 鼠标按下（整板上下压一致）
+    tpPressing = true;
+    tpEl.classList.add('pressing');
+    mcp('pw/mouse_down', { x: VP.cursor.x, y: VP.cursor.y, button: tpButtonMode });
+  }
+});
+tpEl.addEventListener('pointermove', (e) => {
+  const prev = tpPtrs.get(e.pointerId);
+  if (!prev) return;
+  const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+  tpPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (tpPtrs.size >= 2) {            // 双指 = 滚动
+    throttledScroll(VP.cursor.x, VP.cursor.y, dx * 2, dy * 2);
+  } else {
+    tpMoveCursor(dx, dy);            // 单指滑动 = 光标移动（按压中即页面拖拽）
+  }
+});
+function tpRelease(e) {
+  if (!tpPtrs.has(e.pointerId)) return;
+  tpPtrs.delete(e.pointerId);
+  if (tpPtrs.size === 0 && tpPressing) {   // 抬起 = 鼠标抬起（与按压一致 → 完成点击）
+    tpPressing = false;
+    tpEl.classList.remove('pressing');
+    mcp('pw/mouse_up', { x: VP.cursor.x, y: VP.cursor.y, button: tpButtonMode }).then(showShot);
+  }
+}
+tpEl.addEventListener('pointerup', tpRelease);
+tpEl.addEventListener('pointercancel', tpRelease);
+tpEl.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  throttledScroll(VP.cursor.x, VP.cursor.y, e.deltaX, e.deltaY);
+}, { passive: false });
+
+function throttledScroll(x, y, dx, dy) {
+  const now = Date.now();
+  if (now - tpScrollT < 120) return;
+  tpScrollT = now;
+  mcp('pw/scroll_at', { x, y, dx, dy }).then(r => { if (r?.result?.image) showShot(r, true); });
+}
+
+/* ================= 截图 ================= */
+let shotBusy = false, shotTimer = null;
+function scheduleShot(delay) {
+  clearTimeout(shotTimer);
+  shotTimer = setTimeout(screenshot, delay || 600);
+}
+function showShot(r, silent) {
+  if (r?.result?.image) {
+    vpImg.src = 'data:image/png;base64,' + r.result.image;
+  } else if (!silent && r?.error) {
+    toast(r.error.message, true);
+  }
+}
+async function screenshot() {
+  if (shotBusy) return;
+  shotBusy = true;
+  try { showShot(await mcp('pw/screenshot')); } finally { shotBusy = false; }
+}
+
+/* ================= 元素模块（点击/输入/清空/按键 归入此目录） ================= */
+function parseSel(v) {
+  v = (v || '').trim();
+  if (!v) return null;
+  const m = v.match(/^(\d+)\s*,\s*(\d+)$/);
+  if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) };
+  return { selector: v };
+}
+async function showElements(manual) {
+  if (manual) addChat('INFO', '获取页面元素...');
+  const r = await mcp('pw/elements');
+  const box = document.getElementById('elements-list');
+  if (r?.result?.elements) {
+    VP.elems = r.result.elements;
+    box.innerHTML = `<div style="color:var(--muted);padding:4px 6px 6px;">${VP.elems.length} 个元素 · ${escHtml(r.result.url)}（悬停高亮，点击执行点击）</div>` +
+      VP.elems.map((e, i) => `
+        <div class="el-item" onclick="clickElement(${i})" onmouseenter="hoverElement(${i})" onmouseleave="hoverElement(-1)">
+          <span class="etag">&lt;${escHtml(e.tag)}${e.id ? '#' + escHtml(e.id) : ''}&gt;</span>
+          <span class="etxt">${escHtml(e.text || e.selector || '')}</span>
+          <span class="ecoord">${e.x},${e.y}</span>
+        </div>`).join('');
+  } else {
+    VP.elems = [];
+    box.innerHTML = `<div style="color:var(--danger);padding:6px;">获取元素失败: ${escHtml(r?.error?.message || '')}</div>`;
+  }
+}
+function hoverElement(i) {
+  if (i < 0) { VP.hl = null; vpDrawHl(); return; }
+  const e = VP.elems[i];
+  if (!e) return;
+  VP.hl = { x: e.x, y: e.y, w: e.w || 30, h: e.h || 20 };
+  vpDrawHl();
+}
+async function clickElement(i) {
+  const e = VP.elems[i];
+  if (!e) return;
+  VP.cursor = { x: e.x, y: e.y }; vpApply();
+  addChat('INFO', `点击元素 &lt;${e.tag}&gt; ${escHtml(e.text || e.selector || '')} @(${e.x},${e.y})`);
+  await mcp('pw/mouse_down', { x: e.x, y: e.y, button: 'left' });
+  showShot(await mcp('pw/mouse_up', { x: e.x, y: e.y, button: 'left' }));
+}
+async function doClick() {
+  const t = parseSel(document.getElementById('sel-input').value);
+  if (!t) { toast('请输入选择器或坐标', true); return; }
+  addChat('INFO', '点击: ' + JSON.stringify(t));
+  showShot(await mcp('pw/click', t));
+}
+async function doType() {
+  const t = parseSel(document.getElementById('sel-input').value);
+  const text = document.getElementById('type-input').value;
+  if (!text) { toast('请输入文本', true); return; }
+  addChat('INFO', '输入: ' + escHtml(text) + (t ? ' @ ' + JSON.stringify(t) : ''));
+  showShot(await mcp('pw/type', { ...(t || {}), text }));
+}
+async function doKey(key) {
+  if (!key) return;
+  addChat('INFO', '按键: ' + key);
+  showShot(await mcp('pw/key', { key }));
+  document.getElementById('key-select').value = '';
+}
+async function clearInputs() {
+  addChat('INFO', '清空输入框');
+  showShot(await mcp('pw/clear', { n: 10 }));
+}
+
+/* ================= AI 任务 ================= */
+let aiRunning = false;
+async function doCmd() {
+  const input = document.getElementById('cmd-input');
+  const cmd = input.value.trim();
+  if (!cmd || aiRunning) return;
+  input.value = '';
+  if (cmd.startsWith('/goto ')) { nav(cmd.slice(6)); return; }
+  addChat('INFO', 'AI任务: ' + escHtml(cmd));
+  aiRunning = true;
+  document.getElementById('ai-run-btn').disabled = true;
+  document.getElementById('ai-running').style.display = 'flex';
+  try {
+    const r = await mcp('pw/ai_task', { task: cmd, max_steps: 30 });
+    if (r?.result) {
+      if (r.result.status === 'cancelled') addChat('error', '已取消（' + r.result.steps + ' 步）');
+      else if (r.result.status === 'max_steps') addChat('error', '达到最大步数 ' + r.result.steps);
+      else addChat('INFO', '完成: ' + escHtml(r.result.result || 'done') + ' (步骤:' + r.result.steps + ')');
+    } else if (r?.error) addChat('error', escHtml(r.error.message));
+  } finally {
+    aiRunning = false;
+    document.getElementById('ai-run-btn').disabled = false;
+    document.getElementById('ai-running').style.display = 'none';
+    document.getElementById('ai-running-text').textContent = 'AI 执行中…';
+    scheduleShot(300);
+  }
+}
+async function cancelAiTask() {
+  await mcp('ai/cancel');
+  document.getElementById('ai-running-text').textContent = '正在取消…';
+}
+
+/* ================= AI 设置弹窗 ================= */
+function openAiSettings() {
+  document.getElementById('ai-settings-mask').classList.add('show');
+  document.getElementById('ai-test-result').style.display = 'none';
+  mcp('ai/config_get').then(r => {
+    if (r?.result) {
+      document.getElementById('ai-model').value = r.result.model || '';
+      document.getElementById('ai-baseurl').value = r.result.base_url || '';
+      document.getElementById('ai-key').value = '';
+      document.getElementById('ai-key').placeholder = r.result.api_key_set
+        ? `已配置 ${r.result.api_key_masked}（留空沿用）` : 'sk-...（未配置）';
+    }
+  });
+}
+function closeAiSettings() { document.getElementById('ai-settings-mask').classList.remove('show'); }
+function aiPreset(kind) {
+  if (kind === 'deepseek') {
+    document.getElementById('ai-model').value = 'deepseek-chat';
+    document.getElementById('ai-baseurl').value = 'https://api.deepseek.com/v1';
+    document.getElementById('ai-baseurl').placeholder = 'https://api.deepseek.com/v1';
+  } else {
+    document.getElementById('ai-model').value = 'flash';
+    document.getElementById('ai-baseurl').value = '';
+    document.getElementById('ai-baseurl').placeholder = 'https://<flash 所在网关>/v1';
+    toast('请填入 flash 所在网关的 Base URL 后保存');
+  }
+}
+async function aiTest() {
+  const box = document.getElementById('ai-test-result');
+  box.style.display = 'block';
+  box.className = '';
+  box.textContent = '测试中...（使用当前表单值临时验证）';
+  const r = await mcp('ai/test', {
+    prompt: '只回复两个字符: ok',
+    model: document.getElementById('ai-model').value.trim(),
+    base_url: document.getElementById('ai-baseurl').value.trim(),
+    api_key: document.getElementById('ai-key').value.trim(),
+  });
+  if (r?.result?.ok) { box.className = 'ok'; box.textContent = '✅ 连接成功: ' + (r.result.answer || ''); }
+  else { box.className = 'bad'; box.textContent = '❌ ' + (r?.result?.error || r?.error?.message || '未知错误'); }
+}
+async function aiSave() {
+  const model = document.getElementById('ai-model').value.trim();
+  const base_url = document.getElementById('ai-baseurl').value.trim();
+  const api_key = document.getElementById('ai-key').value.trim();
+  if (!model || !base_url) { toast('模型和 Base URL 必填', true); return; }
+  const r = await mcp('ai/config_set', { model, base_url, api_key });
+  if (r?.error) { toast(r.error.message, true); return; }
+  addChat('INFO', `AI 配置已保存: ${escHtml(r.result.model)} @ ${escHtml(r.result.base_url)}`);
+  toast('已保存并生效');
+  closeAiSettings();
+}
+document.getElementById('ai-settings-mask').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeAiSettings();
+});
+
+/* ================= DevTools ================= */
+async function openDevtools() {
+  try {
+    const r = await fetch('/devtools/targets').then(x => x.json());
+    const targets = r.targets || [];
+    if (!targets.length) { toast('无可用 DevTools 目标（先启动浏览器）', true); return; }
+    const cur = tabsCache.find(t => t.active);
+    const target = targets.find(t => cur && t.url === cur.url) || targets[0];
+    const ws = `${location.host}/devtools/page/${target.id}`;
+    window.open(`/devtools/inspector.html?ws=${ws}`, '_blank');
+    addChat('INFO', 'DevTools 已打开: ' + escHtml(target.title || target.url));
+  } catch (e) { toast('DevTools 打开失败: ' + e.message, true); }
+}
+
+/* ================= 状态轮询 ================= */
+async function refreshStatus() {
+  const [statusR, logsR, filesR] = await Promise.all([
+    fetch('/debug/status').then(r => r.json()).catch(() => null),
+    fetch('/debug/logs').then(r => r.json()).catch(() => null),
+    fetch('/debug/files').then(r => r.json()).catch(() => null)
+  ]);
+  if (statusR) {
+    document.getElementById('st-browser').textContent = statusR.pw_context ? '运行中' : '未启动';
+    document.getElementById('st-task').textContent = statusR.task_busy ? 'BUSY' : 'IDLE';
+    const tb = document.getElementById('task-badge');
+    tb.textContent = statusR.task_busy ? 'BUSY' : 'IDLE';
+    tb.className = 'badge ' + (statusR.task_busy ? 'badge-busy' : 'badge-idle');
+    let html = '';
+    if (statusR.pages) for (const p of statusR.pages) html += `<div>P${p.index}: ${escHtml(p.url)}</div>`;
+    document.getElementById('pages-list').innerHTML = html;
+  }
+  if (filesR) document.getElementById('st-auth').textContent = filesR.auth_json_exists ? '存在' : '不存在';
+  if (logsR) {
+    let html = '';
+    for (const l of (logsR.logs || []).slice(-100).reverse())
+      html += `<div class="log-${l.level}"><span class="log-time">${(l.time || '').slice(11, 19)}</span> ${escHtml(l.msg)}</div>`;
+    document.getElementById('log-terminal').innerHTML = html;
+  }
+}
+
+/* ================= 启动 ================= */
+function init() {
+  initBrowser();
+  refreshStatus();
+  refreshTabs();
+  refreshProfiles();
+  setInterval(refreshStatus, 5000);
+  setInterval(refreshTabs, 15000);
+  setInterval(() => { if (document.getElementById('follow-chk').checked && !aiRunning) screenshot(); }, 15000);
+  window.addEventListener('resize', vpFit);
+}
+async function initBrowser() {
+  addChat('INFO', '正在初始化浏览器...');
+  const r = await mcp('pw/init_browser');
+  if (r?.result) { addChat('INFO', '浏览器就绪: ' + r.result.status); screenshot(); }
+  else if (r?.error) addChat('error', '浏览器初始化失败: ' + escHtml(r.error.message));
+}
+
+/* ================= 键盘转发 ================= */
+const KB_KEYS = new Set(['Enter', 'Tab', 'Escape', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Delete', 'Home', 'End', 'PageUp', 'PageDown']);
+let kbActive = false;
+document.getElementById('kb-fwd')?.addEventListener('change', (e) => {
+  kbActive = e.target.checked;
+  if (kbActive) {
+    vpOuter.focus();
+    addChat('INFO', '键盘转发已开启（点击浏览器视口后按键直达 Chrome）');
+  }
+});
+document.addEventListener('keydown', async (e) => {
+  if (!kbActive) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+  if (document.getElementById('ai-settings-mask').classList.contains('show')) return;
+  const key = e.key;
+  if (KB_KEYS.has(key) || (key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+    e.preventDefault();
+    addChat('INFO', '按键转发: ' + (key === ' ' ? 'Space' : key));
+    await mcp('pw/key', { key: key === ' ' ? 'Space' : key });
+    scheduleShot(200);
+  }
+});
+
+init();
+</script>
+</body>
+</html>

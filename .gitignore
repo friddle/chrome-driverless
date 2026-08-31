@@ -1,0 +1,6 @@
+data/
+tmp/
+__pycache__/
+*.pyc
+scripts/node_modules/
+scripts/auth.json
