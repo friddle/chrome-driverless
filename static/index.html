@@ -836,7 +836,7 @@ async function refreshStatus() {
 
 /* ================= 启动 ================= */
 function init() {
-  initBrowser();
+  initBrowser().then(() => autoNavigateFromQuery());
   refreshStatus();
   refreshTabs();
   refreshProfiles();
@@ -850,6 +850,23 @@ async function initBrowser() {
   const r = await mcp('pw/init_browser');
   if (r?.result) { addChat('INFO', '浏览器就绪: ' + r.result.status); screenshot(); }
   else if (r?.error) addChat('error', '浏览器初始化失败: ' + escHtml(r.error.message));
+}
+
+/* 打开面板时的自动导航：?url=<encoded> 优先；无参数则导航到默认站点（网易云登录）。 */
+const DEFAULT_NAV_URL = 'https://music.163.com/';
+async function autoNavigateFromQuery() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const raw = (q.get('url') || q.get('u') || '').trim();
+    const target = raw ? decodeURIComponent(raw) : DEFAULT_NAV_URL;
+    if (!/^https?:\/\//i.test(target)) return;
+    const input = document.getElementById('url-input');
+    if (input) input.value = target;
+    addChat('INFO', '自动导航: ' + target);
+    await nav(target);
+  } catch (e) {
+    addChat('error', '自动导航失败: ' + (e?.message || e));
+  }
 }
 
 /* ================= 键盘转发 ================= */
