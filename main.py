@@ -126,6 +126,26 @@ STEALTH_JS = r"""
       }
     }
   } catch(e) {}
+  // 0b) WebGL 渲染器伪装：--use-gl=swiftshader 会让 getParameter 返回
+  //     "SwiftShader"（软件渲染=虚拟机/无头标志），Google 验证码重点读取此项。
+  try {
+    const GPU_VENDOR = 'Intel';
+    const GPU_RENDERER = 'Intel(R) UHD Graphics 630';
+    const patchGL = (proto) => {
+      if (!proto) return;
+      const orig = proto.getParameter;
+      proto.getParameter = function (p) {
+        try {
+          if (p === 37445) return GPU_VENDOR;             // UNMASKED_VENDOR_WEBGL
+          if (p === 37446) return GPU_RENDERER;           // UNMASKED_RENDERER_WEBGL
+        } catch (e) {}
+        return orig.call(this, p);
+      };
+      proto.getParameter.toString = () => 'function getParameter() { [native code] }';
+    };
+    if (window.WebGLRenderingContext) patchGL(WebGLRenderingContext.prototype);
+    if (window.WebGL2RenderingContext) patchGL(WebGL2RenderingContext.prototype);
+  } catch(e) {}
   // 1) 隐藏 webdriver（含 toString 打补丁，防 navigator.webdriver 探测）
   try {
     const wdDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
