@@ -521,18 +521,60 @@ async def _page_for(params: dict):
     return pw_active_page
 
 
-async def _raw_click(page, cx: float, cy: float, *, steps: int = 8, delay: float = 0.04):
-    """底层坐标点击：CDP Input.dispatchMouseEvent 完整序列（move→down→up）。
+# 最近一次虚拟鼠标位置（Playwright 不暴露，自维护用于人性化轨迹起点）
+pw_last_mouse = {"x": 0.0, "y": 0.0}
 
-    与 locator.click() 的 actionability 检查解耦，命中坐标处最顶层的元素——
-    覆盖层/动画/复杂框架（React/Vue/Google）里 locator 点不动时的兜底手段。
+
+def _human_path(sx: float, sy: float, tx: float, ty: float):
+    """生成类人鼠标轨迹：二次贝塞尔（垂直抖动控制点）+ 缓入缓出 + 过冲回弹 + 微抖。"""
+    dx, dy = tx - sx, ty - sy
+    dist = math.hypot(dx, dy) or 1.0
+    # 控制点：中垂线方向随机偏移 → 弧线而非直线
+    off = random.uniform(-0.3, 0.3) * dist
+    mx, my = (sx + tx) / 2 - (dy / dist) * off, (sy + ty) / 2 + (dx / dist) * off
+    steps = max(14, min(48, int(dist / 6)))
+    pts = []
+    for i in range(1, steps + 1):
+        t = i / steps
+        te = t * t * (3 - 2 * t)  # smoothstep 缓入缓出
+        x = (1 - te) ** 2 * sx + 2 * (1 - te) * te * mx + te ** 2 * tx
+        y = (1 - te) ** 2 * sy + 2 * (1 - te) * te * my + te ** 2 * ty
+        pts.append((x + random.uniform(-0.7, 0.7), y + random.uniform(-0.7, 0.7)))
+    if dist > 40:  # 过冲 4~12px 再回弹（人手常见的修正动作）
+        ox, oy = tx + dx / dist * random.uniform(4, 12), ty + dy / dist * random.uniform(4, 12)
+        pts.append((ox, oy))
+        pts.append((tx + random.uniform(-0.5, 0.5), ty + random.uniform(-0.5, 0.5)))
+    else:
+        pts.append((tx, ty))
+    return pts
+
+
+async def _human_move(page, tx: float, ty: float, *, start=None):
+    """按类人轨迹移动到目标点并记录终点。"""
+    sx = start["x"] if start else pw_last_mouse["x"]
+    sy = start["y"] if start else pw_last_mouse["y"]
+    if math.hypot(tx - sx, ty - sy) < 2:
+        return
+    for (x, y) in _human_path(sx, sy, tx, ty):
+        await page.mouse.move(x, y)
+        await asyncio.sleep(random.uniform(0.004, 0.018))
+    pw_last_mouse.update(x=tx, y=ty)
+
+
+async def _raw_click(page, cx: float, cy: float, *, button: str = "left", click_count: int = 1):
+    """底层人性化坐标点击：贝塞尔轨迹移动 → 停顿 → 按压（随机时长）→ 释放。
+
+    与 locator.click() 的 actionability 检查解耦，命中坐标处最顶层的元素。
+    轨迹/时序按人类行为模拟（reCAPTCHA 等行为分析检测直线匀速瞬移）。
     """
-    await page.mouse.move(cx, cy, steps=max(1, steps))
-    await asyncio.sleep(delay)
+    # 目标点带 ±2px 随机偏移（人不会每次都点正中心）
+    tx, ty = cx + random.uniform(-2, 2), cy + random.uniform(-2, 2)
+    await _human_move(page, tx, ty)
+    await asyncio.sleep(random.uniform(0.09, 0.24))  # 点击前停留
     await page.mouse.down()
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(random.uniform(0.06, 0.15))  # 按压时长
     await page.mouse.up()
-    await asyncio.sleep(delay)
+    await asyncio.sleep(random.uniform(0.04, 0.1))
 
 
 async def _click_locator_raw(page, loc, *, button: str = "left", click_count: int = 1):
@@ -846,13 +888,17 @@ async def pw_type(params):
         if selector:
             loc = page.locator(selector).first
             await loc.scroll_into_view_if_needed()
-            await loc.click(timeout=10000)
-            await loc.fill(str(text))
+            bbox = await loc.bounding_box()
+            if bbox:
+                await _raw_click(page, bbox["x"] + bbox["width"] / 2, bbox["y"] + bbox["height"] / 2)
+            else:
+                await loc.click(timeout=10000)
+            await page.keyboard.type(str(text), delay=random.uniform(50, 130))
         elif x is not None and y is not None:
-            await page.mouse.click(float(x), float(y))
-            await page.keyboard.type(str(text))
+            await _raw_click(page, float(x), float(y))
+            await page.keyboard.type(str(text), delay=random.uniform(50, 130))
         else:
-            await page.keyboard.type(str(text))
+            await page.keyboard.type(str(text), delay=random.uniform(50, 130))
         await asyncio.sleep(0.5)
         shot = await page.screenshot(type="png")
         return {"result": {"status": "typed", "url": page.url, "image": base64.b64encode(shot).decode("utf-8")}}
@@ -1143,6 +1189,7 @@ async def pw_mouse_move(params):
         return {"error": {"code": -2, "message": "x,y required"}}
     try:
         await page.mouse.move(float(x), float(y))
+        pw_last_mouse.update(x=float(x), y=float(y))
         return {"result": {"status": "moved", "x": float(x), "y": float(y)}}
     except Exception as e:
         return {"error": {"code": -1, "message": f"move failed: {e}"}}
