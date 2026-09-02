@@ -329,6 +329,8 @@ async def startup():
     await _add_log("INFO", f"Chrome Driverless started, proxy={HTTP_PROXY}, profile={ACTIVE_PROFILE}")
     if EXTERNAL_URL:
         await _add_log("INFO", f"EXTERNAL_URL={EXTERNAL_URL}")
+    # 后台启动声音管线（pulse → parec → ffmpeg → /audio.mp3）
+    asyncio.create_task(_audio_pipeline())
 
 
 @app.get("/health")
