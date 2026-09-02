@@ -106,6 +106,26 @@ class MCPRequest(BaseModel):
 # 覆盖社区 stealth 补丁：webdriver/plugins/chrome.runtime/permissions/UA/设备枚举/toString 补丁。
 STEALTH_JS = r"""
 (() => {
+  // 0) WebAuthn 降级：让通行密钥请求立即失败（NotAllowedError），
+  //    Google 等站点检测到“此设备无可用通行密钥”后会自动回落到密码登录 UI，
+  //    否则 navigator.credentials.get 永久 pending，页面“试试其他方式”等控件全部假死。
+  try {
+    if (window.PublicKeyCredential) {
+      const reject = () => Promise.reject(new DOMException('NotAllowedError', 'NotAllowedError'));
+      const cc = navigator.credentials;
+      if (cc) {
+        cc.get = reject; cc.create = reject; cc.store = reject;
+        Object.defineProperty(Navigator.prototype, 'credentials', {
+          get: () => ({ get: reject, create: reject, store: reject, preventSilentAccess: () => Promise.resolve() }),
+          configurable: true
+        });
+        Object.defineProperty(navigator, 'credentials', {
+          get: () => ({ get: reject, create: reject, store: reject, preventSilentAccess: () => Promise.resolve() }),
+          configurable: true
+        });
+      }
+    }
+  } catch(e) {}
   // 1) 隐藏 webdriver（含 toString 打补丁，防 navigator.webdriver 探测）
   try {
     const wdDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
