@@ -713,9 +713,8 @@ async function clickElement(i) {
   const e = VP.elems[i];
   if (!e) return;
   VP.cursor = { x: e.x, y: e.y }; vpApply();
-  addChat('INFO', `点击元素 &lt;${e.tag}&gt; ${escHtml(e.text || e.selector || '')} @(${e.x},${e.y})`);
-  await mcp('pw/mouse_down', { x: e.x, y: e.y, button: 'left' });
-  showShot(await mcp('pw/mouse_up', { x: e.x, y: e.y, button: 'left' }));
+  addChat('INFO', `点击元素中心 &lt;${e.tag}&gt; ${escHtml(e.text || e.selector || '')} @(${e.x},${e.y})`);
+  showShot(await mcp('pw/click', { x: e.x, y: e.y, mode: 'raw' }));
 }
 async function doClick() {
   const t = parseSel(document.getElementById('sel-input').value);
@@ -857,7 +856,11 @@ async function refreshStatus() {
     tb.textContent = statusR.task_busy ? 'BUSY' : 'IDLE';
     tb.className = 'badge ' + (statusR.task_busy ? 'badge-busy' : 'badge-idle');
     let html = '';
-    if (statusR.pages) for (const p of statusR.pages) html += `<div>P${p.index}: ${escHtml(p.url)}</div>`;
+    window.__pageUrls = window.__pageUrls || [];
+    if (statusR.pages) for (const p of statusR.pages) {
+      window.__pageUrls[p.index] = p.url;
+      html += `<div title="${escHtml(p.url)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;" onclick="copyPageUrl(${p.index})">P${p.index}: ${escHtml(p.url)}</div>`;
+    }
     document.getElementById('pages-list').innerHTML = html;
   }
   if (filesR) document.getElementById('st-auth').textContent = filesR.auth_json_exists ? '存在' : '不存在';
@@ -905,7 +908,8 @@ async function autoNavigateFromQuery() {
 }
 
 /* ================= 键盘转发 ================= */
-const KB_KEYS = new Set(['Enter', 'Tab', 'Escape', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Delete', 'Home', 'End', 'PageUp', 'PageDown']);
+// 特殊按键（Escape/Fn/F1-F12）不转发，留在本地 UI；其余基础按键全部转发
+const KB_KEYS = new Set(['Enter', 'Tab', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Delete', 'Home', 'End', 'PageUp', 'PageDown']);
 let kbActive = false;
 document.getElementById('kb-fwd')?.addEventListener('change', (e) => {
   kbActive = e.target.checked;
@@ -927,6 +931,12 @@ document.addEventListener('keydown', async (e) => {
     scheduleShot(200);
   }
 });
+
+function copyPageUrl(i) {
+  const u = (window.__pageUrls || [])[i];
+  if (!u) return;
+  navigator.clipboard.writeText(u).then(() => addChat('INFO', '已复制完整链接: ' + u)).catch(() => addChat('WARN', '复制失败，链接: ' + u));
+}
 
 init();
 </script>
