@@ -32,12 +32,12 @@ ENV http_proxy=${HTTP_PROXY} https_proxy=${HTTPS_PROXY} HTTP_PROXY=${HTTP_PROXY}
 
 RUN http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= \
     pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
-fastapi
-uvicorn
-playwright
-pydantic
-Pillow
-websockets
+    fastapi \
+    uvicorn \
+    playwright \
+    pydantic \
+    Pillow \
+    websockets
 
 # cdn.playwright.dev 经代理不可达（TLS 重置），改走 npmmirror 镜像（阿里云，国内直连实测 200）
 # chromium 184MB 用 curl 手动下载解压（阿里云直连不走代理：--noproxy '*' 覆盖 build-arg 代理）
