@@ -261,11 +261,13 @@ async def _ensure_pulse():
     if os.path.exists(PULSE_NATIVE):
         return True
     for attempt in range(3):
+        # 注意：--start 守护化在 root 下会静默失败；前台子进程方式稳定常驻
+        subprocess.Popen(["rm", "-f", "/tmp/pulse/pulse/pid"])
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "pulseaudio", "--start", "--exit-idle-time=-1", "-nF", "/tmp/pulse.pa",
+            subprocess.Popen(
+                ["pulseaudio", "-nF", "/tmp/pulse.pa", "--exit-idle-time=-1",
+                 "--disallow-exit=false", "--shuffle=0"],
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-            await asyncio.wait_for(proc.wait(), timeout=10)
         except Exception:
             pass
         for _ in range(25):
