@@ -250,62 +250,84 @@ def _browser_opts(storage_state=None):
 # 内置浏览器声音：pulse 虚拟声卡 → parec 采集 → ffmpeg mp3 → /audio.mp3 广播
 # ---------------------------------------------------------------------------
 audio_clients = set()  # 每个 UI 播放器一个 asyncio.Queue
+PULSE_NATIVE = "/tmp/pulse/native"
+
+
+async def _ensure_pulse():
+    """确保 pulse 守护进程已运行（root 运行的警告无害），返回 native socket 是否就绪。"""
+    os.makedirs("/tmp/pulse", exist_ok=True)
+    os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp/pulse")
+    os.environ.setdefault("PULSE_SERVER", "unix:" + PULSE_NATIVE)
+    if os.path.exists(PULSE_NATIVE):
+        return True
+    for attempt in range(3):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pulseaudio", "--start", "--exit-idle-time=-1", "-nF", "/tmp/pulse.pa",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            await asyncio.wait_for(proc.wait(), timeout=10)
+        except Exception:
+            pass
+        for _ in range(25):
+            if os.path.exists(PULSE_NATIVE):
+                return True
+            await asyncio.sleep(0.2)
+        await _add_log("WARN", f"[Audio] pulse socket 未就绪 (attempt={attempt + 1})")
+    return False
 
 
 async def _audio_pipeline():
-    """启动 pulse 守护进程并持续把 vsink.monitor 的声音编码成 mp3 广播给所有客户端。"""
-    os.makedirs("/tmp/pulse", exist_ok=True)
-    os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp/pulse")
-    os.environ.setdefault("PULSE_SERVER", "unix:/tmp/pulse/native")
-    if not os.path.exists("/tmp/pulse/native"):
-        subprocess.Popen(["pulseaudio", "--start", "--exit-idle-time=-1", "-nF", "/tmp/pulse.pa"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(50):
-            if os.path.exists("/tmp/pulse/native"):
-                break
-            await asyncio.sleep(0.2)
-    try:
-        parec = await asyncio.create_subprocess_exec(
-            "parec", "-d", "vsink.monitor", "--format=s16le", "--rate=44100", "--channels=2",
-            stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL)
-        ffmpeg = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-loglevel", "error", "-f", "s16le", "-ar", "44100", "-ac", "2", "-i", "pipe:0",
-            "-c:a", "libmp3lame", "-b:a", "96k", "-f", "mp3", "pipe:1",
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        await _add_log("WARN", "[Audio] pulse/ffmpeg 不可用，声音播放禁用")
-        return
+    """把 vsink.monitor 的声音编码成 mp3 广播给所有 /audio.mp3 客户端（带自动重启）。"""
+    while not await _ensure_pulse():
+        await _add_log("WARN", "[Audio] pulse 不可用，5s 后重试")
+        await asyncio.sleep(5)
     await _add_log("INFO", "[Audio] 声音管线就绪 /audio.mp3")
+    while True:  # 外层：parec/ffmpeg 异常退出后自动重启
+            try:
+                parec = await asyncio.create_subprocess_exec(
+                    "parec", "-d", "vsink.monitor", "--format=s16le", "--rate=44100", "--channels=2",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+                ffmpeg = await asyncio.create_subprocess_exec(
+                    "ffmpeg", "-loglevel", "error", "-f", "s16le", "-ar", "44100", "-ac", "2",
+                    "-i", "pipe:0", "-c:a", "libmp3lame", "-b:a", "96k", "-f", "mp3", "pipe:1",
+                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL)
+            except FileNotFoundError:
+                await _add_log("WARN", "[Audio] parec/ffmpeg 不可用，声音播放禁用")
+                return
+            await asyncio.gather(_pump(parec.stdout, ffmpeg.stdin), _broadcast(ffmpeg.stdout))
+            await _add_log("WARN", "[Audio] 管线中断，3s 后重启")
+            await asyncio.sleep(3)
 
-    async def pump(src, dst):
-        while True:
-            chunk = await src.read(4096)
-            if not chunk:
-                break
+
+async def _pump(src, dst):
+    while True:
+        chunk = await src.read(4096)
+        if not chunk:
+            break
+        try:
             dst.write(chunk)
+            await dst.drain()
+        except Exception:
+            break
 
-    pump_task = asyncio.create_task(pump(parec.stdout, ffmpeg.stdin))
 
-    async def broadcast():
-        # mp3 帧边界不严格，头几字节丢弃也无碍播放
-        header = await ffmpeg.stdout.read(512)
-        while True:
-            chunk = await ffmpeg.stdout.read(4096)
-            if not chunk:
-                break
-            for q in list(audio_clients):
-                try:
-                    q.put_nowait(chunk)
-                except asyncio.QueueFull:
-                    pass
-
-    await asyncio.gather(pump_task, broadcast())
+async def _broadcast(stream):
+    while True:
+        chunk = await stream.read(4096)
+        if not chunk:
+            break
+        for q in list(audio_clients):
+            try:
+                q.put_nowait(chunk)
+            except asyncio.QueueFull:
+                pass
 
 
 @app.get("/audio.mp3")
 async def audio_stream():
-    if not os.path.exists("/tmp/pulse/native"):
-        return JSONResponse({"error": {"code": -1, "message": "audio pipeline unavailable"}}, status_code=503)
+    if not os.path.exists(PULSE_NATIVE):
+        asyncio.create_task(_audio_pipeline())  # 懒启动：首个播放器触发
     q = asyncio.Queue(maxsize=256)
     audio_clients.add(q)
 
