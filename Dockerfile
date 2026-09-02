@@ -10,7 +10,7 @@ COPY static/ static/
 COPY scripts/ scripts/
 
 # DevTools 反代需要 websockets（base 未装；清华源直连）
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple websockets
+RUN pip install --no-cache-dir websockets
 
 # 内置浏览器声音：pulseaudio 虚拟声卡（null sink）+ parec 采集 + ffmpeg 转 mp3 流
 RUN apt-get update && apt-get install -y --no-install-recommends pulseaudio ffmpeg dbus \
@@ -24,7 +24,7 @@ RUN mkdir -p /tmp/pulse && printf '%s\n' \
     > /tmp/pulse.pa
 
 # base 已装好 chromium-1234（PLAYWRIGHT_BROWSERS_PATH 复用），npm 不再重复下载
-RUN cd scripts && npm ci --registry=https://registry.npmmirror.com
+RUN cd scripts && npm ci
 
 EXPOSE 9223 9222
 
