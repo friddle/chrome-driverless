@@ -172,6 +172,25 @@ select.input, select.btn { appearance:none; -webkit-appearance:none; padding-rig
     <span id="task-badge" class="badge badge-idle">IDLE</span>
     <button class="btn" onclick="openAiSettings()" title="AI 模型/地址设置">⚙ AI 设置</button>
     <button class="btn" onclick="screenshot()" title="截图">📷 截图</button>
+    <button class="btn" id="audio-btn" onclick="toggleRemoteAudio()" title="远程浏览器声音">🔇 声音</button>
+    <script>
+      let remoteAudioEl = null, remoteAudioOn = false;
+      function toggleRemoteAudio() {
+        if (!remoteAudioEl) {
+          remoteAudioEl = new Audio('/audio.mp3');
+          remoteAudioEl.volume = 0.9;
+        }
+        remoteAudioOn = !remoteAudioOn;
+        const btn = document.getElementById('audio-btn');
+        if (remoteAudioOn) {
+          remoteAudioEl.play().catch(() => {});
+          btn.textContent = '🔊 声音';
+        } else {
+          remoteAudioEl.pause();
+          btn.textContent = '🔇 声音';
+        }
+      }
+    </script>
   </div>
 
   <!-- Tab 条：profile 置顶 + 浏览器 tab（✕ 关闭） -->

@@ -1,11 +1,12 @@
 from fastapi import FastAPI, WebSocket
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Any
 import json, asyncio, base64, logging, os, re, asyncio as aio
 from collections import deque
 from datetime import datetime
+import subprocess
 import urllib.request
 import urllib.error
 from io import BytesIO
@@ -60,6 +61,9 @@ def _set_active_profile(name):
     AUTH_JSON_PATH = _profile_auth()
     BROWSER_PROFILE_DIR = _profile_browser()
     os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
+    # chromium 声音输出 → 容器内 pulse 虚拟声卡（/audio.mp3 流式回放给 UI）
+    os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp/pulse")
+    os.environ.setdefault("PULSE_SERVER", "unix:/tmp/pulse/native")
     return ACTIVE_PROFILE
 
 HTTP_PROXY = os.environ.get("HTTP_PROXY") or os.environ.get("HTTP_PROXY_DEFAULT", "")
@@ -240,6 +244,81 @@ def _browser_opts(storage_state=None):
                 proxy["bypass"] = NO_PROXY
             opts["proxy"] = proxy
     return opts
+
+
+# ---------------------------------------------------------------------------
+# 内置浏览器声音：pulse 虚拟声卡 → parec 采集 → ffmpeg mp3 → /audio.mp3 广播
+# ---------------------------------------------------------------------------
+audio_clients = set()  # 每个 UI 播放器一个 asyncio.Queue
+
+
+async def _audio_pipeline():
+    """启动 pulse 守护进程并持续把 vsink.monitor 的声音编码成 mp3 广播给所有客户端。"""
+    os.makedirs("/tmp/pulse", exist_ok=True)
+    os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp/pulse")
+    os.environ.setdefault("PULSE_SERVER", "unix:/tmp/pulse/native")
+    if not os.path.exists("/tmp/pulse/native"):
+        subprocess.Popen(["pulseaudio", "--start", "--exit-idle-time=-1", "-nF", "/tmp/pulse.pa"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(50):
+            if os.path.exists("/tmp/pulse/native"):
+                break
+            await asyncio.sleep(0.2)
+    try:
+        parec = await asyncio.create_subprocess_exec(
+            "parec", "-d", "vsink.monitor", "--format=s16le", "--rate=44100", "--channels=2",
+            stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL)
+        ffmpeg = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-loglevel", "error", "-f", "s16le", "-ar", "44100", "-ac", "2", "-i", "pipe:0",
+            "-c:a", "libmp3lame", "-b:a", "96k", "-f", "mp3", "pipe:1",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        await _add_log("WARN", "[Audio] pulse/ffmpeg 不可用，声音播放禁用")
+        return
+    await _add_log("INFO", "[Audio] 声音管线就绪 /audio.mp3")
+
+    async def pump(src, dst):
+        while True:
+            chunk = await src.read(4096)
+            if not chunk:
+                break
+            dst.write(chunk)
+
+    pump_task = asyncio.create_task(pump(parec.stdout, ffmpeg.stdin))
+
+    async def broadcast():
+        # mp3 帧边界不严格，头几字节丢弃也无碍播放
+        header = await ffmpeg.stdout.read(512)
+        while True:
+            chunk = await ffmpeg.stdout.read(4096)
+            if not chunk:
+                break
+            for q in list(audio_clients):
+                try:
+                    q.put_nowait(chunk)
+                except asyncio.QueueFull:
+                    pass
+
+    await asyncio.gather(pump_task, broadcast())
+
+
+@app.get("/audio.mp3")
+async def audio_stream():
+    if not os.path.exists("/tmp/pulse/native"):
+        return JSONResponse({"error": {"code": -1, "message": "audio pipeline unavailable"}}, status_code=503)
+    q = asyncio.Queue(maxsize=256)
+    audio_clients.add(q)
+
+    async def gen():
+        try:
+            yield b"\xff\xfb\x90\x64"  # mp3 帧头，帮助播放器立即起播
+            while True:
+                chunk = await q.get()
+                yield chunk
+        finally:
+            audio_clients.discard(q)
+
+    return StreamingResponse(gen(), media_type="audio/mpeg", headers={"Cache-Control": "no-cache"})
 
 
 @app.on_event("startup")
@@ -459,6 +538,7 @@ async def _ensure_pw_context():
     opts["args"] = [
         "--disable-blink-features=AutomationControlled",
         "--disable-infobars",
+        "--autoplay-policy=no-user-gesture-required",
         "--no-sandbox",
         "--start-maximized",
         "--window-size=1440,900",
