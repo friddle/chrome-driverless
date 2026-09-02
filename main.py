@@ -7,6 +7,7 @@ import json, asyncio, base64, logging, os, re, asyncio as aio
 from collections import deque
 from datetime import datetime
 import subprocess
+import time
 import urllib.request
 import urllib.error
 from io import BytesIO
@@ -264,10 +265,16 @@ async def _ensure_pulse():
         # 注意：--start 守护化在 root 下会静默失败；前台子进程方式稳定常驻
         subprocess.Popen(["rm", "-f", "/tmp/pulse/pulse/pid"])
         try:
-            subprocess.Popen(
-                ["pulseaudio", "-nF", "/tmp/pulse.pa", "--exit-idle-time=-1",
-                 "--disallow-exit=false", "--shuffle=0"],
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            # null-sink 需要系统 D-Bus（缺失会导致 pulse 反复报错退出）
+            subprocess.Popen(["sh", "-c", "mkdir -p /run/dbus && (dbus-uuidgen --ensure 2>/dev/null; dbus-daemon --system --fork 2>/dev/null) || true"])
+            time.sleep(0.5)
+        except Exception:
+            pass
+        try:
+            with open("/tmp/pulse-err.log", "ab") as errf:
+                subprocess.Popen(
+                    ["pulseaudio", "-nF", "/tmp/pulse.pa", "--exit-idle-time=-1"],
+                    stdout=errf, stderr=errf)
         except Exception:
             pass
         for _ in range(25):

@@ -13,7 +13,7 @@ COPY scripts/ scripts/
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple websockets
 
 # 内置浏览器声音：pulseaudio 虚拟声卡（null sink）+ parec 采集 + ffmpeg 转 mp3 流
-RUN apt-get update && apt-get install -y --no-install-recommends pulseaudio ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends pulseaudio ffmpeg dbus \
     && rm -rf /var/lib/apt/lists/*
 
 # 虚拟声卡配置：null sink + monitor 采集源
