@@ -295,7 +295,7 @@ async def mcp_handler(req: MCPRequest):
 
 async def _dispatch(method, params):
     handlers = {
-        "pw/screenshot": lambda: pw_screenshot(),
+        "pw/screenshot": lambda: pw_screenshot(params),
         "pw/navigate": lambda: pw_navigate(params),
         "pw/init_browser": lambda: pw_init_browser(),
         "pw/set_proxy": lambda: pw_set_proxy(params),
@@ -305,12 +305,13 @@ async def _dispatch(method, params):
         "pw/run_script_content": lambda: pw_run_script_content(params),
         "pw/ai_task": lambda: pw_ai_task(params),
         "pw/click": lambda: pw_click(params),
+        "pw/hover": lambda: pw_hover(params),
         "pw/type": lambda: pw_type(params),
         "pw/key": lambda: pw_key(params),
         "pw/auto_login": lambda: pw_auto_login(params),
-        "pw/back": lambda: pw_back(),
-        "pw/reload": lambda: pw_reload(),
-        "pw/elements": lambda: pw_elements(),
+        "pw/back": lambda: pw_back(params),
+        "pw/reload": lambda: pw_reload(params),
+        "pw/elements": lambda: pw_elements(params),
         "pw/clear": lambda: pw_clear(params),
         "pw/profile_list": lambda: pw_profile_list(),
         "pw/profile_set": lambda: pw_profile_set(params),
@@ -381,11 +382,14 @@ async def _ensure_pw_context():
                 return pw_active_page
         except Exception:
             pass
-        pw_active_page = None
-        return pw_context.pages[0]
+        # 活动页已关闭（弹窗自动关闭/手动关tab等）：回退到最近打开的页面，
+        # 而不是 pages[0]（最早的tab，往往是用户意想不到的目标）。
+        pw_active_page = pw_context.pages[-1]
+        return pw_active_page
     async with _pw_init_lock:
         if pw_context and pw_context.pages:  # 双检：等锁期间别人已启动好
-            return pw_context.pages[0]
+            pw_active_page = pw_context.pages[-1]
+            return pw_active_page
 
         os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
         # 清理残留 profile 锁（异常退出会留下 Singleton*，导致 Chromium 认为 profile 被占用而卡死）
@@ -465,6 +469,61 @@ async def _ensure_pw_context():
     await _add_log("INFO", "[PW] Persistent browser ready (headed+xvfb, stealth)")
 
     return page
+
+
+async def _page_for(params: dict):
+    """解析 MCP 调用的目标页面。
+
+    优先级：params["index"]（显式指定 tab，与 pw/tabs 编号一致）> pw_active_page >
+    最近打开的页面。解决 active page 漂移问题：弹窗/新tab/页面关闭后，evaluate、
+    click 等不再打到意料之外的页面上。显式传入 index 且越界时返回 None（调用方报错）。
+    """
+    global pw_active_page
+    await _ensure_pw_context()
+    if not pw_context or not pw_context.pages:
+        return None
+    pages = pw_context.pages
+    if params.get("index") is not None:
+        try:
+            i = int(params["index"])
+        except Exception:
+            return None
+        if i < 0 or i >= len(pages):
+            return None
+        page = pages[i]
+        if page.is_closed():
+            return None
+        pw_active_page = page
+        return page
+    if pw_active_page and not pw_active_page.is_closed():
+        return pw_active_page
+    pw_active_page = pages[-1]
+    return pw_active_page
+
+
+async def _raw_click(page, cx: float, cy: float, *, steps: int = 8, delay: float = 0.04):
+    """底层坐标点击：CDP Input.dispatchMouseEvent 完整序列（move→down→up）。
+
+    与 locator.click() 的 actionability 检查解耦，命中坐标处最顶层的元素——
+    覆盖层/动画/复杂框架（React/Vue/Google）里 locator 点不动时的兜底手段。
+    """
+    await page.mouse.move(cx, cy, steps=max(1, steps))
+    await asyncio.sleep(delay)
+    await page.mouse.down()
+    await asyncio.sleep(0.02)
+    await page.mouse.up()
+    await asyncio.sleep(delay)
+
+
+async def _click_locator_raw(page, loc, *, button: str = "left", click_count: int = 1):
+    """对 locator 的包围盒中心做一次底层坐标点击（raw 模式/auto 兜底用）。"""
+    bbox = await loc.bounding_box()
+    if not bbox:
+        raise RuntimeError("element has no bounding box (not rendered)")
+    cx = bbox["x"] + bbox["width"] / 2
+    cy = bbox["y"] + bbox["height"] / 2
+    await _raw_click(page, cx, cy)
+    return {"x": cx, "y": cy}
 
 
 async def pw_init_browser():
@@ -602,7 +661,7 @@ async def pw_tab_close_all(params):
 async def pw_evaluate(params):
     """在当前页面执行 JS，返回 JSON 序列化结果：pw/evaluate {expression|function}。
     用于 job 脚本无法覆盖的通用兜底（抓数据/状态探测），与 pw/ai_task 同款 CDP 直连模式。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     expr = params.get("expression", "") or params.get("function", "")
@@ -623,7 +682,7 @@ async def pw_set_proxy(params):
         try: await pw_context.close()
         except: pass
     pw_browser = pw_context = None
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if page:
         return {"result": {"status": "ok", "proxy": use_proxy, "url": page.url}}
     return {"error": {"code": -1, "message": "Restart failed"}}
@@ -639,16 +698,16 @@ async def pw_save_auth():
         return {"error": {"code": -1, "message": f"Save failed: {e}"}}
 
 
-async def pw_screenshot():
-    page = await _ensure_pw_context()
+async def pw_screenshot(params: dict = None):
+    page = await _page_for(params or {})
     if not page:
-        return {"error": {"code": -1, "message": "Browser init failed"}}
+        return {"error": {"code": -1, "message": "Browser init failed (or index out of range)"}}
     screenshot_bytes = await page.screenshot(type="png")
     return {"result": {"image": base64.b64encode(screenshot_bytes).decode("utf-8"), "url": page.url}}
 
 
 async def pw_navigate(params):
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     url = params.get("url", "")
@@ -675,36 +734,87 @@ async def pw_navigate(params):
 
 
 async def pw_click(params):
-    """远程鼠标点击：pw/click {selector|text|x,y}。selector 优先（CSS/文本），坐标兜底。"""
-    page = await _ensure_pw_context()
+    """远程鼠标点击：pw/click {selector|text|x,y[,index][,mode]}。
+
+    - index: 指定目标 tab（与 pw/tabs 编号一致），缺省=当前活动页
+    - mode:  auto(默认)=locator 优先、失败自动降级底层坐标点击；
+             locator=仅 Playwright 定位点击（带 actionability 检查）；
+             raw=直接对元素包围盒中心（或 x,y 坐标）发底层鼠标事件
+    - button: left/right/middle；double: true 双击
+    坐标兜底模式可命中覆盖层、动画中、hover 才出现等 locator 点不动的元素。
+    """
+    page = await _page_for(params)
     if not page:
-        return {"error": {"code": -1, "message": "Browser init failed"}}
+        return {"error": {"code": -1, "message": "Browser init failed (or index out of range)"}}
     selector = params.get("selector", "")
     text = params.get("text", "")
     x, y = params.get("x"), params.get("y")
+    mode = str(params.get("mode", "auto") or "auto").lower()
+    button = str(params.get("button", "left") or "left").lower()
+    click_count = 2 if params.get("double") else 1
     try:
-        if selector:
-            loc = page.locator(selector).first
-            await loc.scroll_into_view_if_needed()
-            await loc.click(timeout=10000)
-        elif text:
-            loc = page.get_by_text(text, exact=False).first
-            await loc.scroll_into_view_if_needed()
-            await loc.click(timeout=10000)
+        if selector or text:
+            loc = page.locator(selector).first if selector else page.get_by_text(text, exact=False).first
+            try:
+                await loc.scroll_into_view_if_needed(timeout=5000)
+            except Exception:
+                pass  # 元素可能在视口外也点得到（框架滚动容器），留给 click/raw 兜底
+            clicked = False
+            if mode in ("auto", "locator"):
+                try:
+                    await loc.click(timeout=8000, button=button, click_count=click_count)
+                    clicked = True
+                except Exception:
+                    if mode == "locator":
+                        raise
+            if not clicked and mode in ("auto", "raw"):
+                # 底层坐标点击：locator 点不动（遮挡/动画/框架事件绑定特殊）时的兜底
+                pos = await _click_locator_raw(page, loc, button=button)
+                clicked = True
         elif x is not None and y is not None:
-            await page.mouse.click(float(x), float(y))
+            await _raw_click(page, float(x), float(y))
         else:
             return {"error": {"code": -2, "message": "need selector|text|x,y"}}
         await asyncio.sleep(1)
         shot = await page.screenshot(type="png")
-        return {"result": {"status": "clicked", "url": page.url, "image": base64.b64encode(shot).decode("utf-8")}}
+        return {"result": {"status": "clicked", "url": page.url, "mode": mode if (selector or text) else "raw",
+                           "image": base64.b64encode(shot).decode("utf-8")}}
     except Exception as e:
         return {"error": {"code": -1, "message": f"click failed: {e}"}}
 
 
+
+
+async def pw_hover(params):
+    """悬停：pw/hover {selector|text|index}。hover 才出现的菜单/按钮，先 hover 再 click。"""
+    page = await _page_for(params)
+    if not page:
+        return {"error": {"code": -1, "message": "Browser init failed (or index out of range)"}}
+    selector = params.get("selector", "")
+    text = params.get("text", "")
+    x, y = params.get("x"), params.get("y")
+    try:
+        if selector or text:
+            loc = page.locator(selector).first if selector else page.get_by_text(text, exact=False).first
+            bbox = await loc.bounding_box()
+            if not bbox:
+                raise RuntimeError("element has no bounding box")
+            cx, cy = bbox["x"] + bbox["width"] / 2, bbox["y"] + bbox["height"] / 2
+        elif x is not None and y is not None:
+            cx, cy = float(x), float(y)
+        else:
+            return {"error": {"code": -2, "message": "need selector|text|x,y"}}
+        await page.mouse.move(cx, cy, steps=6)
+        await asyncio.sleep(0.6)
+        shot = await page.screenshot(type="png")
+        return {"result": {"status": "hovered", "url": page.url, "image": base64.b64encode(shot).decode("utf-8")}}
+    except Exception as e:
+        return {"error": {"code": -1, "message": f"hover failed: {e}"}}
+
+
 async def pw_type(params):
     """远程键盘输入：pw/type {selector, text} 或 {x, y, text}（先点击目标再输入）。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     selector = params.get("selector", "")
@@ -796,9 +906,9 @@ async def pw_auto_login(params):
     if not target_url:
         return {"error": {"code": -2, "message": "login url not set (params.url or BROWSER_LOGIN_URL)"}}
 
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
-        return {"error": {"code": -1, "message": "Browser init failed"}}
+        return {"error": {"code": -1, "message": "Browser init failed (or index out of range)"}}
     try:
         await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(2)
@@ -833,7 +943,7 @@ async def pw_auto_login(params):
 
 async def pw_key(params):
     """发送键盘按键（Enter/Tab/Escape 等）：pw/key {key}。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     key = params.get("key", "Enter")
@@ -846,9 +956,9 @@ async def pw_key(params):
         return {"error": {"code": -1, "message": f"key failed: {e}"}}
 
 
-async def pw_back():
-    """浏览器后退：pw/back。"""
-    page = await _ensure_pw_context()
+async def pw_back(params: dict = None):
+    """浏览器后退：pw/back [index]。"""
+    page = await _page_for(params or {})
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     try:
@@ -860,9 +970,9 @@ async def pw_back():
         return {"error": {"code": -1, "message": f"back failed: {e}"}}
 
 
-async def pw_reload():
-    """刷新当前页面：pw/reload。"""
-    page = await _ensure_pw_context()
+async def pw_reload(params: dict = None):
+    """刷新当前页面：pw/reload [index]。"""
+    page = await _page_for(params or {})
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     try:
@@ -879,7 +989,7 @@ async def pw_clear(params=None):
     策略：①清空当前聚焦的 input/textarea；②否则退格 Backspace ×N（默认10，兼容无焦点场景）。"""
     params = params or {}
     n = int(params.get("n", 10) or 10)
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     try:
@@ -947,9 +1057,9 @@ async def pw_profile_set(params):
                         "url": page.url}}
 
 
-async def pw_elements():
-    """列出页面可交互元素的 id/selector/坐标/类型/文本（定位登录框用）：pw/elements。"""
-    page = await _ensure_pw_context()
+async def pw_elements(params: dict = None):
+    """列出页面可交互元素的 id/selector/坐标/类型/文本（定位登录框用）：pw/elements [index]。"""
+    page = await _page_for(params or {})
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     try:
@@ -1005,7 +1115,7 @@ async def pw_new_tab(params):
 
 async def pw_mouse_move(params):
     """移动虚拟鼠标（不回截图，触摸板高频调用用）：pw/mouse_move {x,y}。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     x, y = params.get("x"), params.get("y")
@@ -1020,7 +1130,7 @@ async def pw_mouse_move(params):
 
 async def pw_mouse_down(params):
     """按下鼠标（触摸板按压）：pw/mouse_down {x,y,button=left|right|middle}。不回截图。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     button = params.get("button", "left")
@@ -1036,7 +1146,7 @@ async def pw_mouse_down(params):
 
 async def pw_mouse_up(params):
     """抬起鼠标（触摸板松开），回新截图：pw/mouse_up {x,y,button}。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     button = params.get("button", "left")
@@ -1055,7 +1165,7 @@ async def pw_mouse_up(params):
 
 async def pw_scroll_at(params):
     """在指定坐标滚动（触摸板双指/滚轮）：pw/scroll_at {x,y,dx,dy}。"""
-    page = await _ensure_pw_context()
+    page = await _page_for(params)
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed"}}
     try:
