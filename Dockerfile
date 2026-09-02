@@ -1,4 +1,5 @@
-FROM chrome-driverless-base:latest
+ARG BASE_IMAGE=chrome-driverless-base:latest
+FROM ${BASE_IMAGE}
 
 # 与 base 的 python playwright 版本对齐（避免浏览器版本漂移，共用 /root/.cache/ms-playwright 的 chromium）
 # playwright 版本已固定死（package.json + package-lock.json），npm ci 严格按 lock 安装
