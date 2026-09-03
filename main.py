@@ -261,6 +261,14 @@ async def _ensure_pulse():
     os.makedirs("/tmp/pulse", exist_ok=True)
     os.environ.setdefault("XDG_RUNTIME_DIR", "/tmp/pulse")
     os.environ.setdefault("PULSE_SERVER", "unix:" + PULSE_NATIVE)
+    # pulse 启动脚本自举（容器里镜像已烘焙，本地裸跑时自动生成）
+    pa = "/tmp/pulse.pa"
+    if not os.path.exists(pa):
+        with open(pa, "w") as f:
+            f.write(
+                "load-module module-null-sink sink_name=vsink sink_properties=device.description=VirtualSink\n"
+                "set-default-sink vsink\n"
+                f"load-module module-native-protocol-unix socket={PULSE_NATIVE} auth-cookie=/tmp/pulse/cookie\n")
     if os.path.exists(PULSE_NATIVE):
         return True
     for attempt in range(3):
