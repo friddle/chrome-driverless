@@ -232,7 +232,8 @@ def _browser_opts(storage_state=None):
         locale="zh-CN",
         timezone_id="Asia/Shanghai",
         viewport={"width": 1280, "height": 900},
-        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        # UA 不覆盖：真 Linux headed Chrome 上报真实 UA + Client Hints(sec-ch-ua) 自洽，
+        # 之前伪造 Mac/Chrome120 会与 navigator.platform(Linux)及真实内核版本冲突，抬高指纹不一致分
         extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9"},
     )
     if storage_state:
@@ -593,7 +594,9 @@ async def _ensure_pw_context():
         "--disable-features=VizDisplayCompositor",
         # CDP 端口与 playwright 的 --remote-debugging-pipe 共存（实测可用）：
         # job 脚本 connectOverCDP 在同一浏览器开「任务级独立 tab」（RULES §5.8：一个任务一个 tab，结束必关）
+        # 只绑 127.0.0.1：job 脚本/DevTools 反代都在容器内走回环；对外不可探测(CDP 暴露=自动化铁证)
         f"--remote-debugging-port={CDP_PORT}",
+        "--remote-debugging-address=127.0.0.1",
     ]
     # 启动带超时：悬死（端口被占/渲染卡住）时杀进程重试一次，而不是永远挂着
     last_err = None

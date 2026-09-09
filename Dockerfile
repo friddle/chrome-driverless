@@ -26,6 +26,6 @@ RUN mkdir -p /tmp/pulse && printf '%s\n' \
 # base 已装好 chromium-1234（PLAYWRIGHT_BROWSERS_PATH 复用），npm 不再重复下载
 RUN cd scripts && npm ci
 
-EXPOSE 9223 9222
+EXPOSE 9223
 
 CMD ["sh", "-c", "rm -f /tmp/.X99-lock /tmp/.X11-unix/X99; Xvfb :99 -screen 0 1440x900x24 & sleep 1 && DISPLAY=:99 uvicorn main:app --host 0.0.0.0 --port 9223"]
