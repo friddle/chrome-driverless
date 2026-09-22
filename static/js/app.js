@@ -570,5 +570,26 @@ document.getElementById('vkb-input')?.addEventListener('keydown', (e) => {
 });
 
 
+/* ================= 视口全屏 ================= */
+function toggleFullscreen() {
+  const el = document.getElementById('vp-outer');
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (fn) fn.call(el); else toast('当前浏览器不支持全屏 API', true);
+  }
+}
+function _fsChanged() {
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  const b = document.getElementById('fs-btn');
+  b.classList.toggle('on', on);
+  b.textContent = on ? '⛶ 退出全屏' : '⛶ 全屏';
+  vpFit();                    // 全屏/退出后视口尺寸变了，重新适应
+}
+document.addEventListener('fullscreenchange', _fsChanged);
+document.addEventListener('webkitfullscreenchange', _fsChanged);   // Safari
+
+
 showMain();
 
