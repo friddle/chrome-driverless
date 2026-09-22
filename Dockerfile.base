@@ -35,6 +35,22 @@ RUN pip install --no-cache-dir \
 ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 RUN playwright install chromium
 
+# Real Google Chrome, coexisting with the Playwright CfT chromium:
+# opt in at runtime with BROWSER_ENGINE=chrome — UA / userAgentData brands / Widevine
+# are then natively self-consistent, fixing the two biggest CfT fingerprint tells
+# (brands contain only "Chromium"; missing Widevine = developer-population signal).
+ARG CHROME_DEB_URL=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+RUN curl -fsSL --retry 3 -o /tmp/google-chrome.deb "${CHROME_DEB_URL}" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
+    && rm -f /tmp/google-chrome.deb \
+    && google-chrome --version
+# Disable all Google data exfiltration for the real Chrome (no metrics/safe-browsing/
+# sync/signin noise from the container)
+RUN mkdir -p /etc/opt/chrome/policies/managed && \
+    echo '{"MetricsReportingEnabled":false,"SafeBrowsingEnabled":false,"SafeBrowsingProtectionLevel":0,"SyncDisabled":true,"BrowserSignin":0,"BackgroundModeEnabled":false,"DefaultBrowserSettingEnabled":false,"PasswordLeakDetectionEnabled":false,"PromotionalTabsEnabled":false}' \
+    > /etc/opt/chrome/policies/managed/zz-chrome-driverless.json
+
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 EXPOSE 9223
