@@ -5,7 +5,9 @@ FROM ${BASE_IMAGE}
 # playwright 版本已固定死（package.json + package-lock.json），npm ci 严格按 lock 安装
 ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
+# 模块化拆分：全部 cd_*.py 必须进镜像（缺任何一个 uvicorn main:app 都起不来）
 COPY main.py .
+COPY cd_*.py ./
 COPY static/ static/
 COPY scripts/ scripts/
 
