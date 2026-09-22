@@ -309,7 +309,9 @@ async def human_key(params):
     else:
         key = parts[0]
     if len(key) == 1:
-        key = key.upper() if modifiers & 8 else key.lower()
+        # 显式 shift 修饰才强制大写；裸字符保留原样——shift+a 在前端 e.key 已是结果字符 'A'，
+        # 此处 lower() 会把它打回小写（密码框/输入框大写变小写的根因）
+        key = key.upper() if modifiers & 8 else key
     await _human_press_key(key, modifiers)
     await asyncio.sleep(0.4)
     return {"result": {"status": "key", "key": raw, **await _human_shot()}}
