@@ -17,7 +17,7 @@
 - **真 Google Chrome 引擎** —— `BROWSER_ENGINE=chrome` 启用，brands + Widevine 原生自洽（一次解决 CfT 二进制的两大指纹硬伤）
 - **GPU 直通** —— WebGL 渲染器探测，有 GPU 默认直通（消除 SwiftShader 软渲染特征）
 - **声音串流** —— `/audio.mp3` 实时听取浏览器内声音（PulseAudio null-sink → parec → ffmpeg）
-- **AI 任务** —— 兼容任意 OpenAI 风格 `/chat/completions`（内置 DeepSeek 预设）；模型看截图逐步操作浏览器
+- **AI 任务** —— browser-use 架构 agent：DOM 提炼为编号元素表（`[3] <button>登录</button>`），LLM 按编号输出动作并根据执行结果自我纠错；兼容任意 OpenAI 风格接口（内置 DeepSeek 预设），视觉模式可为多模态模型逐步附截图
 - **环境变量自动登录** —— `pw/auto_login` 按 `BROWSER_LOGIN_*` 环境变量填写登录表单，凭据不落代码
 - **Node.js 作业脚本** —— `pw/run_script` 跑 `connectOverCDP` 脚本，直连同一浏览器共享登录态
 - **模块化代码** —— `main.py` + `cd_*.py` 拆分，每文件 ≤600 行
@@ -110,7 +110,8 @@ docker run -d -p 9223:9223 -v chrome-data:/app/data \
 | `cd_human.py` / `cd_human_ops.py` | 真人模式生命周期 · 真人模式页面操作 |
 | `cd_audit.py` / `cd_stealth.py` | stealth 审计清单 · stealth JS 注入 |
 | `cd_cdp.py` | 原始 CDP 辅助、GPU / WebGL 探测 |
-| `cd_ai.py` | LLM 集成、AI 任务循环、Node 脚本执行 |
+| `cd_agent.py` | browser-use 架构任务 agent：元素编号动作空间、同源 iframe 递归、逐步日志 |
+| `cd_ai.py` | LLM 客户端（messages + 视觉分片）、AI 配置、Node 脚本执行 |
 | `cd_audio.py` | PulseAudio → parec → ffmpeg → `/audio.mp3` |
 
 ## 嵌入到 Web 主界面

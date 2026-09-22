@@ -314,33 +314,47 @@ async function clearInputs() {
   showShot(await mcp('pw/clear', { n: 10 }));
 }
 
-/* ================= AI 任务 ================= */
-let aiRunning = false;
+/* ================= AI 任务（browser-use 架构 agent） ================= */
+let aiRunning = false, aiProgressTimer = null;
 async function doCmd() {
   const input = document.getElementById('cmd-input');
   const cmd = input.value.trim();
   if (!cmd || aiRunning) return;
-  input.value = '';
-  if (cmd.startsWith('/goto ')) { nav(cmd.slice(6)); return; }
-  addChat('INFO', 'AI任务: ' + escHtml(cmd));
+  if (cmd.startsWith('/goto ')) { input.value = ''; nav(cmd.slice(6)); return; }
+  addChat('INFO', 'AI任务: ' + escHtml(cmd.length > 80 ? cmd.slice(0, 80) + '…' : cmd));
   aiRunning = true;
   document.getElementById('ai-run-btn').disabled = true;
   document.getElementById('ai-running').style.display = 'flex';
+  // 实时进度：轮询服务端日志里的 [Agent] 行（每步 thought/actions 都会写日志）
+  aiProgressTimer = setInterval(async () => {
+    try {
+      const r = await fetch('/debug/logs').then(x => x.json());
+      const lines = (r.logs || []).filter(l => (l.msg || '').includes('[Agent]'));
+      if (lines.length) document.getElementById('ai-running-text').textContent = lines[lines.length - 1].msg.slice(0, 90);
+    } catch (e) {}
+  }, 3000);
   try {
-    const r = await mcp('pw/ai_task', { task: cmd, max_steps: 30 });
+    const useVision = document.getElementById('ai-vision-run')?.checked;
+    const r = await mcp('pw/ai_task', { task: cmd, max_steps: 50, use_vision: !!useVision });
     if (r?.result) {
       if (r.result.status === 'cancelled') addChat('error', '已取消（' + r.result.steps + ' 步）');
-      else if (r.result.status === 'max_steps') addChat('error', '达到最大步数 ' + r.result.steps);
+      else if (r.result.status === 'max_steps') addChat('error', `达到最大步数 ${r.result.steps}（未得到 done）最后URL: ${escHtml(r.result.final_url || '')}`);
       else addChat('INFO', '完成: ' + escHtml(r.result.result || 'done') + ' (步骤:' + r.result.steps + ')');
     } else if (r?.error) addChat('error', escHtml(r.error.message));
   } finally {
     aiRunning = false;
+    clearInterval(aiProgressTimer);
     document.getElementById('ai-run-btn').disabled = false;
     document.getElementById('ai-running').style.display = 'none';
     document.getElementById('ai-running-text').textContent = 'AI 执行中…';
     scheduleShot(300);
   }
 }
+// 大指令框：Enter 执行 / Shift+Enter 换行（textarea 原生 Enter 是换行，这里反过来）
+document.getElementById('cmd-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); doCmd(); }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doCmd(); }
+});
 async function cancelAiTask() {
   await mcp('ai/cancel');
   document.getElementById('ai-running-text').textContent = '正在取消…';
@@ -357,6 +371,9 @@ function openAiSettings() {
       document.getElementById('ai-key').value = '';
       document.getElementById('ai-key').placeholder = r.result.api_key_set
         ? `已配置 ${r.result.api_key_masked}（留空沿用）` : 'sk-...（未配置）';
+      document.getElementById('ai-vision').checked = !!r.result.vision;
+      const vr = document.getElementById('ai-vision-run');
+      if (vr) vr.checked = !!r.result.vision;
     }
   });
 }
@@ -391,10 +408,13 @@ async function aiSave() {
   const model = document.getElementById('ai-model').value.trim();
   const base_url = document.getElementById('ai-baseurl').value.trim();
   const api_key = document.getElementById('ai-key').value.trim();
+  const vision = document.getElementById('ai-vision').checked;
   if (!model || !base_url) { toast('模型和 Base URL 必填', true); return; }
-  const r = await mcp('ai/config_set', { model, base_url, api_key });
+  const r = await mcp('ai/config_set', { model, base_url, api_key, vision });
   if (r?.error) { toast(r.error.message, true); return; }
-  addChat('INFO', `AI 配置已保存: ${escHtml(r.result.model)} @ ${escHtml(r.result.base_url)}`);
+  addChat('INFO', `AI 配置已保存: ${escHtml(r.result.model)} @ ${escHtml(r.result.base_url)}${r.result.vision ? '（视觉 ON）' : ''}`);
+  const vr2 = document.getElementById('ai-vision-run');
+  if (vr2) vr2.checked = !!r.result.vision;
   toast('已保存并生效');
   closeAiSettings();
 }
@@ -548,6 +568,7 @@ document.getElementById('vkb-input')?.addEventListener('keydown', (e) => {
   e.stopPropagation();        // 文本框内的按键不进键盘转发
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); vkbSendText(); }
 });
+
 
 showMain();
 

@@ -112,8 +112,13 @@ select.input, select.btn { appearance:none; -webkit-appearance:none; padding-rig
 
 /* ---------- AI 任务 ---------- */
 #ai-log { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-family:var(--mono); font-size:11px; max-height:150px; overflow-y:auto; line-height:1.7; }
-.ai-input-row { display:flex; gap:6px; margin-top:8px; }
+.ai-input-row { display:flex; gap:6px; margin-top:8px; align-items:center; }
 .ai-input-row .input { flex:1; }
+/* AI 大指令框：多行/超长指令（登录流程等多步任务一次贴入） */
+.ai-cmd { width:100%; resize:vertical; min-height:96px; max-height:320px; line-height:1.6;
+  font-family:var(--mono); margin-top:8px; box-sizing:border-box; }
+.ai-opt { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted); cursor:pointer; user-select:none; }
+.ai-opt-hint { font-size:10px; color:var(--muted); opacity:.75; }
 #ai-running { display:none; align-items:center; gap:8px; margin-top:8px; font-size:11px; color:var(--accent); }
 .spinner { width:12px; height:12px; border:2px solid rgba(79,140,255,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }

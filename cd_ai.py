@@ -12,8 +12,9 @@ from cd_state import _add_log
 
 def _ai_cfg():
     """AI 有效配置：data/ai_config.json > 环境变量 > 默认。
-    flash 等别名模型指向 deepseek 官方必然 400（Model Not Exist），自动回退 deepseek-chat 并告警。"""
-    cfg = {"model": "", "base_url": "", "api_key": ""}
+    flash 等别名模型指向 deepseek 官方必然 400（Model Not Exist），自动回退 deepseek-chat 并告警。
+    vision=多模态（agent 步骤附截图）；纯文本模型（deepseek-chat）保持 False 走 DOM 元素表。"""
+    cfg = {"model": "", "base_url": "", "api_key": "", "vision": False}
     try:
         with open(AI_CONFIG_PATH, "r") as f:
             saved = json.load(f)
@@ -21,6 +22,7 @@ def _ai_cfg():
             cfg["model"] = (saved.get("model") or "").strip()
             cfg["base_url"] = (saved.get("base_url") or "").strip().rstrip("/")
             cfg["api_key"] = (saved.get("api_key") or "").strip()
+            cfg["vision"] = bool(saved.get("vision"))
     except Exception:
         pass
     if not cfg["model"]:
@@ -29,6 +31,8 @@ def _ai_cfg():
         cfg["base_url"] = os.environ.get("AI_BASE_URL", "").strip().rstrip("/")
     if not cfg["api_key"]:
         cfg["api_key"] = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not cfg["vision"]:
+        cfg["vision"] = os.environ.get("AI_VISION", "").strip().lower() in ("1", "true", "yes")
     if not cfg["base_url"]:
         cfg["base_url"] = "https://api.deepseek.com/v1"
     if not cfg["model"]:
@@ -52,15 +56,24 @@ def _llm_http_error(e):
 async def _call_deepseek(prompt, override=None):
     """调用 OpenAI 兼容 chat/completions（配置见 _ai_cfg；override 用于 ai/test 表单值临时验证）。
     国内 API 直连不走代理（HTTP_PROXY 是国外代理，绕行反而失败）。"""
+    return await _llm_chat([{"role": "user", "content": prompt}], override=override)
+
+
+async def _llm_chat(messages, override=None, use_vision=False):
+    """OpenAI 兼容 chat/completions：messages 数组（agent 多轮对话用）。
+    use_vision 时 messages 内 content 可为 [{type:text},{type:image_url}] 分片（多模态模型）。
+    temperature=0：agent 输出 JSON 动作，确定性优先。"""
     cfg = override or _ai_cfg()
     if not cfg["api_key"]:
         raise Exception("API key 未配置（DEEPSEEK_API_KEY 或前端 AI 设置）")
-    req_body = {"model": cfg["model"], "messages": [{"role": "user", "content": prompt}], "max_tokens": 2048}
+    req_body = {"model": cfg["model"], "messages": messages,
+                "max_tokens": 4096, "temperature": 0}
     req = urllib.request.Request(f"{cfg['base_url']}/chat/completions",
         data=json.dumps(req_body).encode("utf-8"),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {cfg['api_key']}"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        timeout = 90 if use_vision else 60
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("choices", [{}])[0].get("message", {}).get("content", "")
     except urllib.error.HTTPError as e:
@@ -75,6 +88,7 @@ async def ai_config_get(params):
         "model": cfg["model"], "base_url": cfg["base_url"],
         "api_key_set": bool(cfg["api_key"]),
         "api_key_masked": (cfg["api_key"][:6] + "..." + cfg["api_key"][-4:]) if len(cfg["api_key"]) > 12 else ("***" if cfg["api_key"] else ""),
+        "vision": cfg["vision"],
         "from_file": os.path.exists(AI_CONFIG_PATH),
     }}
 
@@ -84,11 +98,12 @@ async def ai_config_set(params):
     model = (params.get("model") or "").strip()
     base_url = (params.get("base_url") or "").strip().rstrip("/")
     api_key = (params.get("api_key") or "").strip()
+    vision = bool(params.get("vision", False))
     if not model or not base_url:
         return {"error": {"code": -2, "message": "model 和 base_url 均必填"}}
     if not base_url.startswith(("http://", "https://")):
         return {"error": {"code": -2, "message": "base_url 必须以 http(s):// 开头"}}
-    saved = {"model": model, "base_url": base_url}
+    saved = {"model": model, "base_url": base_url, "vision": vision}
     if api_key:
         saved["api_key"] = api_key
     try:
@@ -261,84 +276,10 @@ async def pw_run_script_content(params):
 
 
 async def pw_ai_task(params):
-    task_desc = params.get("task", "分析当前页面内容")
-    max_steps = params.get("max_steps", 20)
-    system_prompt = f"""你是一个浏览器自动化助手。你会收到一张页面截图和一个任务目标。
-你需要分析页面内容，返回下一步操作。
-返回格式必须是严格的 JSON，不要有其他内容：
-{{"thought": "你的分析", "action": "操作类型", "params": {{}}, "done": false}}
-action 类型：
-- click: {{"action": "click", "params": {{"selector": "CSS选择器"}}}}
-- type: {{"action": "type", "params": {{"selector": "CSS选择器", "text": "输入内容"}}}}
-- scroll_down/scroll_up/wait/navigate/done
-当前任务：{task_desc}"""
-    history = []
-    llm_fail_streak = 0  # 连续 LLM 调用失败（模型/地址/密钥错）：≥3 直接终止并报错，不空转烧完 max_steps
-    for step in range(max_steps):
-        if S.ai_cancel_evt.is_set():
-            S.ai_cancel_evt.clear()
-            await _add_log("WARN", "[AI Task] 已取消")
-            return {"result": {"status": "cancelled", "steps": step, "history": history}}
-        page = await _ensure_pw_context()
-        if not page:
-            return {"error": {"code": -1, "message": "Browser closed during task"}}
-        try:
-            page_txt = ""
-            try:
-                page_txt = (await page.evaluate("document.body.innerText"))[:800]
-            except: pass
-            history_text = ""
-            if history:
-                history_text = "\n\n之前的操作历史：\n" + "\n".join([f"步骤{i+1}: {h}" for i, h in enumerate(history[-5:])])
-            context = f"[当前页面 {page.url}]\n[页面可见文本]\n{page_txt}\n"
-            try:
-                answer = await _call_deepseek(context + system_prompt + history_text)
-                llm_fail_streak = 0
-            except Exception as e:
-                llm_fail_streak += 1
-                await _add_log("ERROR", f"[AI Task] Step {step+1} LLM 调用失败({llm_fail_streak}/3): {e}")
-                history.append(f"LLM 调用失败: {e}")
-                if llm_fail_streak >= 3:
-                    return {"error": {"code": -3, "message": f"AI 连续调用失败×3 已终止（检查 AI 设置的模型/地址/密钥）: {e}"}}
-                await asyncio.sleep(2)
-                continue
-            answer_clean = answer.strip()
-            if "```json" in answer_clean:
-                answer_clean = answer_clean.split("```json")[1].split("```")[0].strip()
-            elif "```" in answer_clean:
-                answer_clean = answer_clean.split("```")[1].split("```")[0].strip()
-            action_data = _parse_ai_json(answer_clean)
-            if action_data is None:
-                history.append("AI返回了无法解析的内容")
-                continue
-            thought = action_data.get("thought", "")
-            action = action_data.get("action", "")
-            ap = action_data.get("params", {})
-            is_done = action_data.get("done", False)
-            await _add_log("INFO", f"[AI Task] Step {step+1}: thought={thought[:80]} action={action}")
-            if is_done or action == "done":
-                result = ap.get("result", thought)
-                await _add_log("INFO", f"[AI Task] Completed: {result}")
-                return {"result": {"status": "done", "steps": step + 1, "result": result, "history": history}}
-            if action == "click":
-                try: await page.click(ap.get("selector",""), timeout=5000); history.append(f"点击 {ap.get('selector','')}")
-                except Exception as e: history.append(f"点击失败: {e}")
-            elif action == "type":
-                try: await page.fill(ap.get("selector",""), ap.get("text","")); history.append(f"输入")
-                except Exception as e: history.append(f"输入失败: {e}")
-            elif action == "scroll_down": await page.mouse.wheel(0, 500); history.append("向下滚动")
-            elif action == "scroll_up": await page.mouse.wheel(0, -500); history.append("向上滚动")
-            elif action == "wait": await asyncio.sleep(ap.get("seconds",2)); history.append("等待")
-            elif action == "navigate":
-                await page.goto(ap.get("url",""), wait_until="domcontentloaded", timeout=30000); history.append("导航")
-            else: history.append(f"未知操作: {action}")
-            await asyncio.sleep(2)
-        except Exception as e:
-            await _add_log("ERROR", f"[AI Task] Step {step+1} exception: {e}")
-            history.append(f"异常: {e}")
-            await asyncio.sleep(3)
-    await _add_log("WARN", f"[AI Task] Reached max steps {max_steps}")
-    return {"result": {"status": "max_steps", "steps": max_steps, "history": history}}
+    """pw/ai_task 入口 → cd_agent.run_agent（browser-use 架构）。
+    旧实现（LLM 盲猜 CSS 选择器）已删除：真实页面全部失败。"""
+    import cd_agent
+    return await cd_agent.run_agent(params)
 
 
 # ---------------- DevTools 反代（HTTP + WS → 本容器 CDP 9222）----------------

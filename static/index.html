@@ -159,8 +159,14 @@
           <div id="ai-running"><span class="spinner"></span><span id="ai-running-text">AI 执行中…</span><span style="flex:1"></span>
             <button class="btn btn-danger" onclick="cancelAiTask()">停止</button>
           </div>
+          <!-- 大指令输入区：多行/超长指令（登录流程、多步查询等） -->
+          <textarea class="input ai-cmd" id="cmd-input" rows="5" placeholder="AI 指令（支持多行长指令），例：&#10;打开 example.com，用账号 xxx@xx.com / 密码 xxx 登录，&#10;登录后查看 usage 页面并汇报数值"></textarea>
           <div class="ai-input-row">
-            <input class="input" id="cmd-input" placeholder="AI 指令：找到导出按钮并点击 / 分析当前页面" onkeydown="if(event.key==='Enter')doCmd()" autocomplete="off">
+            <label class="ai-opt" title="视觉模式：每步附页面截图（需多模态模型，如 glm-4v / qwen-vl / gpt-4o）。纯文本模型（deepseek-chat）不要勾，agent 会自动走 DOM 元素表">
+              <input type="checkbox" id="ai-vision-run"> 👁 视觉
+            </label>
+            <span class="ai-opt-hint">Enter 执行 · Shift+Enter 换行</span>
+            <span style="flex:1"></span>
             <button class="btn btn-primary" id="ai-run-btn" onclick="doCmd()">执行</button>
           </div>
         </div>
@@ -224,6 +230,11 @@
     <div class="field"><label>模型</label><input class="input" id="ai-model" placeholder="deepseek-chat"></div>
     <div class="field"><label>Base URL</label><input class="input" id="ai-baseurl" placeholder="https://api.deepseek.com/v1"></div>
     <div class="field"><label>API Key（留空 = 沿用服务端已配置密钥）</label><input class="input" id="ai-key" type="password" placeholder="sk-..."></div>
+    <div class="field" style="align-items:center;">
+      <label class="ai-opt" title="多模态模型（glm-4v / qwen-vl / gpt-4o 等）才勾选：AI 任务每步附页面截图；纯文本模型（deepseek-chat）不勾，走 DOM 元素表（browser-use 架构，同样可用）">
+        <input type="checkbox" id="ai-vision"> 👁 视觉模型（AI 任务每步附截图）
+      </label>
+    </div>
     <div id="ai-test-result"></div>
     <div class="actions">
       <button class="btn" onclick="closeAiSettings()">关闭</button>

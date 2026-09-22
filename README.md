@@ -17,7 +17,7 @@ A **persistent, headed Chrome** driven by Playwright, exposed through an **MCP-s
 - **Real Google Chrome engine** — set `BROWSER_ENGINE=chrome` for native brands + Widevine (fixes the two biggest Chromium-for-Testing fingerprint tells)
 - **GPU passthrough** — WebGL renderer probing; real GPU by default when available (no SwiftShader software-rendering tell)
 - **Audio streaming** — hear the browser at `/audio.mp3` (PulseAudio null-sink → parec → ffmpeg)
-- **AI tasks** — any OpenAI-compatible `/chat/completions` endpoint (DeepSeek preset included); the model sees screenshots and drives the browser step by step
+- **AI tasks** — a browser-use-style agent: the DOM is distilled into numbered interactive elements (`[3] <button>Sign in</button>`), the LLM answers with index-based actions and self-corrects from execution feedback; any OpenAI-compatible endpoint works (DeepSeek preset), and a vision mode attaches screenshots for multimodal models
 - **Env-driven auto login** — `pw/auto_login` fills login forms from `BROWSER_LOGIN_*` env vars, no credentials in code
 - **Node.js job scripts** — `pw/run_script` executes scripts that `connectOverCDP` into the *same* browser, sharing login state
 - **Modular codebase** — `main.py` + `cd_*.py` modules, each ≤600 lines
@@ -110,7 +110,8 @@ Open `http://localhost:9223/` for the console.
 | `cd_human.py` / `cd_human_ops.py` | Human-mode lifecycle · human-mode page operations |
 | `cd_audit.py` / `cd_stealth.py` | Stealth audit checklist · stealth JS injection |
 | `cd_cdp.py` | Raw CDP helpers, GPU / WebGL probing |
-| `cd_ai.py` | LLM integration, AI task loop, Node script runner |
+| `cd_agent.py` | browser-use-style task agent: element-indexed action space, same-origin iframe recursion, step-by-step logging |
+| `cd_ai.py` | LLM client (messages + vision shards), AI config, Node script runner |
 | `cd_audio.py` | PulseAudio → parec → ffmpeg → `/audio.mp3` |
 
 ## Embedding into your app
