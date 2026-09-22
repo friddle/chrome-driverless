@@ -490,12 +490,63 @@ document.addEventListener('keydown', async (e) => {
   if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
   if (document.getElementById('ai-settings-mask').classList.contains('show')) return;
   const key = e.key;
-  if (KB_KEYS.has(key) || (key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+  // 修饰键组合（Shift+Tab / Ctrl+Enter 等）：单字符+shift 的 e.key 已是结果字符（如 'A'）直接发；
+  // meta/alt 组合不拦——浏览器/OS 快捷键（Cmd+W 等）优先，需要 Cmd/Alt 组合时用「⌨ 小键盘」
+  const mods = [];
+  if (e.shiftKey && key !== 'Shift') mods.push('Shift');
+  if (e.ctrlKey && key !== 'Control') mods.push('Control');
+  const combo = mods.length && key.length > 1;
+  if (combo && KB_KEYS.has(key)) {
+    e.preventDefault();
+    const k = mods.join('+') + '+' + key;
+    addChat('INFO', '按键转发: ' + k);
+    await mcp('pw/key', { key: k });
+    scheduleShot(200);
+  } else if (KB_KEYS.has(key) || (key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)) {
     e.preventDefault();
     addChat('INFO', '按键转发: ' + (key === ' ' ? 'Space' : key));
     await mcp('pw/key', { key: key === ' ' ? 'Space' : key });
     scheduleShot(200);
   }
+});
+
+/* ================= 虚拟小键盘（修饰键组合 + 功能键 + 多语言 IME 输入） ================= */
+const vkbMods = new Set();
+function toggleVkb(force) {
+  const p = document.getElementById('vkb-panel');
+  const show = force === undefined ? p.style.display === 'none' : !!force;
+  p.style.display = show ? 'flex' : 'none';
+  document.getElementById('vkb-btn').classList.toggle('on', show);
+  if (show) document.getElementById('vkb-input').focus();
+}
+function vkbClearMods() {
+  vkbMods.clear();
+  document.querySelectorAll('.vkb-mod').forEach(b => b.classList.remove('on'));
+}
+document.querySelectorAll('.vkb-mod').forEach(b => b.addEventListener('click', () => {
+  const m = b.dataset.mod;
+  if (vkbMods.has(m)) { vkbMods.delete(m); b.classList.remove('on'); }
+  else { vkbMods.add(m); b.classList.add('on'); }
+}));
+document.querySelectorAll('#vkb-panel .vkb-grid button').forEach(b => b.addEventListener('click', async () => {
+  const k = [...vkbMods, b.dataset.key].join('+');
+  addChat('INFO', '小键盘: ' + k);
+  await mcp('pw/key', { key: k });
+  vkbClearMods();            // 组合发送后修饰键自动熄灭（单击下一个键不会误带）
+  scheduleShot(200);
+}));
+function vkbSendText() {
+  const el = document.getElementById('vkb-input');
+  const t = el.value;
+  if (!t) return;
+  addChat('INFO', '小键盘文本: ' + (t.length > 30 ? t.slice(0, 30) + '…' : t));
+  el.value = '';
+  mcp('pw/type', { text: t }).then(showShot);   // 真人模式自动路由 human/type（insertText 支持任意语言）
+}
+function vkbClearText() { document.getElementById('vkb-input').value = ''; }
+document.getElementById('vkb-input')?.addEventListener('keydown', (e) => {
+  e.stopPropagation();        // 文本框内的按键不进键盘转发
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); vkbSendText(); }
 });
 
 showMain();

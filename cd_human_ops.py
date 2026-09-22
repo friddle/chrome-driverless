@@ -268,6 +268,8 @@ _KEYMAP = {
     "ArrowLeft": (37, "ArrowLeft", ""), "ArrowRight": (39, "ArrowRight", ""),
     "Home": (36, "Home", ""), "End": (35, "End", ""),
     "PageUp": (33, "PageUp", ""), "PageDown": (34, "PageDown", ""),
+    "Space": (32, "Space", " "),
+    **{f"F{i}": (111 + i, f"F{i}", "") for i in range(1, 13)},  # F1=112 ... F12=123
 }
 _MODIFIERS = {"alt": 1, "ctrl": 2, "control": 2, "meta": 4, "cmd": 4, "command": 4, "shift": 8}
 

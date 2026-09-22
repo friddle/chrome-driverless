@@ -153,3 +153,27 @@ select.input, select.btn { appearance:none; -webkit-appearance:none; padding-rig
 #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 #toast.err { border-color:rgba(248,113,113,.5); color:var(--danger); }
 
+
+/* ---------- 虚拟小键盘浮层 ---------- */
+#vkb-panel { position:absolute; top:12px; right:12px; z-index:30; width:318px; flex-direction:column; gap:8px;
+  background:var(--panel); border:1px solid #2c3545; border-radius:12px; padding:10px;
+  box-shadow:0 12px 40px rgba(0,0,0,.55); }
+#vkb-panel .vkb-head { display:flex; align-items:center; font-size:11px; color:var(--muted); font-weight:600; letter-spacing:1px; text-transform:uppercase; }
+#vkb-panel .vkb-x { margin-left:auto; width:22px; height:22px; display:flex; align-items:center; justify-content:center;
+  border:none; border-radius:6px; background:transparent; color:var(--muted); cursor:pointer; font-size:12px; }
+#vkb-panel .vkb-x:hover { background:rgba(248,113,113,.18); color:var(--danger); }
+.vkb-mods { display:flex; gap:6px; align-items:center; }
+.vkb-mods .btn { padding:5px 10px; font-size:11px; }
+.vkb-mod.on { background:rgba(79,140,255,.18) !important; border-color:var(--accent) !important; color:var(--accent) !important; box-shadow:0 0 0 1px rgba(79,140,255,.25) inset; }
+.vkb-grid { display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; }
+.vkb-grid button { padding:9px 4px; border:1px solid var(--border); border-radius:8px; background:var(--panel2);
+  color:var(--text); cursor:pointer; font-size:12px; transition:all .1s; white-space:nowrap; overflow:hidden; }
+.vkb-grid button:hover { background:#202936; border-color:#37424f; }
+.vkb-grid button:active { background:rgba(79,140,255,.22); border-color:var(--accent); }
+.vkb-grid .wide { grid-column: span 2; }
+.vkb-text { display:flex; flex-direction:column; gap:6px; }
+.vkb-text textarea { width:100%; resize:vertical; min-height:52px; padding:8px 10px; background:var(--bg);
+  border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; line-height:1.5; outline:none; font-family:inherit; }
+.vkb-text textarea:focus { border-color:var(--accent); }
+.vkb-text-btns { display:flex; gap:6px; }
+.vkb-hint { font-size:11px; color:var(--muted); line-height:1.5; }

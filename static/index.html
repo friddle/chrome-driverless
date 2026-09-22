@@ -58,6 +58,7 @@
             <button class="btn" onclick="vpReset()" title="适应窗口（双击视口重置）" style="min-width:54px;" id="zoom-label">100%</button>
             <button class="btn" onclick="vpZoom(1.25)" title="放大">＋</button>
           </div>
+          <button class="btn" onclick="toggleVkb()" id="vkb-btn" title="虚拟小键盘：修饰键组合（Shift+Tab 等）+ 功能键 + 多语言文本输入（支持中/英/日/韩等系统输入法）">⌨ 小键盘</button>
           <button class="btn" onclick="openDevtools()" title="打开 Chrome DevTools">🛠 DevTools</button>
           <label style="display:flex;align-items:center;font-size:11px;color:var(--muted);gap:4px;" title="定时自动截图跟随页面变化">
             <input type="checkbox" id="follow-chk" checked> 跟随
@@ -74,6 +75,45 @@
           </div>
           <div id="vp-hint">点击截图 / 导航后查看页面<br>（单击转发点击 · 拖动平移 · 滚轮滚动页面 · Ctrl+滚轮缩放 · 双击重置）</div>
           <div id="vp-zoombadge">100%</div>
+          <!-- 虚拟小键盘浮层：修饰键组合 + 功能键 + 多语言 IME 文本输入 -->
+          <div id="vkb-panel" style="display:none;">
+            <div class="vkb-head">
+              <span>⌨ 小键盘</span>
+              <button class="vkb-x" onclick="toggleVkb(false)" title="收起">✕</button>
+            </div>
+            <div class="vkb-mods">
+              <button class="btn vkb-mod" data-mod="Shift">Shift</button>
+              <button class="btn vkb-mod" data-mod="Control">Ctrl</button>
+              <button class="btn vkb-mod" data-mod="Alt">Alt</button>
+              <button class="btn vkb-mod" data-mod="Meta">Cmd</button>
+              <button class="btn" onclick="vkbClearMods()" title="清除全部修饰键" style="margin-left:auto;">清除</button>
+            </div>
+            <div class="vkb-grid">
+              <button data-key="Escape" title="Escape">Esc</button>
+              <button data-key="Tab" title="Tab">Tab</button>
+              <button data-key="Enter" title="Enter">⏎ Enter</button>
+              <button data-key="Backspace" title="Backspace">⌫</button>
+              <button data-key="Delete" title="Delete">Del</button>
+              <button data-key="Home" title="Home">Home</button>
+              <button data-key="End" title="End">End</button>
+              <button data-key="PageUp" title="PageUp">PgUp</button>
+              <button data-key="PageDown" title="PageDown">PgDn</button>
+              <button data-key="F5" title="F5">F5</button>
+              <button data-key="ArrowLeft" title="ArrowLeft">←</button>
+              <button data-key="ArrowUp" title="ArrowUp">↑</button>
+              <button data-key="ArrowDown" title="ArrowDown">↓</button>
+              <button data-key="ArrowRight" title="ArrowRight">→</button>
+              <button data-key="Space" class="wide" title="Space">Space</button>
+            </div>
+            <div class="vkb-text">
+              <textarea id="vkb-input" rows="2" placeholder="多语言文本输入：切换系统输入法打字（中/英/日/韩…），Ctrl+Enter 或点「发送」写入页面"></textarea>
+              <div class="vkb-text-btns">
+                <button class="btn btn-primary" onclick="vkbSendText()">发送</button>
+                <button class="btn" onclick="vkbClearText()">清空</button>
+              </div>
+            </div>
+            <div class="vkb-hint">修饰键点亮后点功能键 = 组合（如 Shift+Tab / Ctrl+Enter），发送后自动熄灭</div>
+          </div>
         </div>
       </div>
 
