@@ -286,7 +286,21 @@ async def pw_type(params):
     if text is None:
         return {"error": {"code": -2, "message": "text is required"}}
     try:
-        if selector:
+        instant = bool(params.get("instant"))
+        if instant:
+            # 粘贴语义：一次性 insertText（真实粘贴是瞬时一整块，不逐字符拟人）
+            if selector:
+                loc = page.locator(selector).first
+                await loc.scroll_into_view_if_needed()
+                bbox = await loc.bounding_box()
+                if bbox:
+                    await _raw_click(page, bbox["x"] + bbox["width"] / 2, bbox["y"] + bbox["height"] / 2)
+                else:
+                    await loc.click(timeout=10000)
+            elif x is not None and y is not None:
+                await _raw_click(page, float(x), float(y))
+            await page.keyboard.insertText(str(text))
+        elif selector:
             loc = page.locator(selector).first
             await loc.scroll_into_view_if_needed()
             bbox = await loc.bounding_box()
@@ -302,7 +316,7 @@ async def pw_type(params):
             await page.keyboard.type(str(text), delay=_motion_rng.uniform(50, 130))
         await asyncio.sleep(0.5)
         shot = await page.screenshot(type="png")
-        return {"result": {"status": "typed", "url": page.url, "image": base64.b64encode(shot).decode("utf-8")}}
+        return {"result": {"status": "pasted" if instant else "typed", "url": page.url, "image": base64.b64encode(shot).decode("utf-8")}}
     except Exception as e:
         return {"error": {"code": -1, "message": f"type failed: {e}"}}
 
@@ -320,6 +334,24 @@ async def pw_key(params):
         return {"result": {"status": "key_pressed", "url": page.url, "image": base64.b64encode(shot).decode("utf-8")}}
     except Exception as e:
         return {"error": {"code": -1, "message": f"key failed: {e}"}}
+
+
+async def pw_clip_read(params: dict = None):
+    """读页面选中文本（兼容 input/textarea 内选中段）：本地↔远端剪贴板互通的复制侧。"""
+    page = await _page_for(params or {})
+    if not page:
+        return {"error": {"code": -1, "message": "Browser init failed"}}
+    expr = ("const a=document.activeElement;"
+            "if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a.value"
+            "&&a.selectionStart!=null&&a.selectionEnd>a.selectionStart)"
+            "return a.value.slice(a.selectionStart,a.selectionEnd);"
+            "const s=String(window.getSelection?window.getSelection():'');"
+            "return s==='[object Selection]'?'':s;")
+    try:
+        val = await page.evaluate("(() => {" + expr + "})()")
+        return {"result": {"text": str(val or "")}}
+    except Exception as e:
+        return {"error": {"code": -1, "message": f"clip_read failed: {e}"}}
 
 
 async def pw_back(params: dict = None):
@@ -486,8 +518,6 @@ async def pw_scroll_at(params):
                            "image": base64.b64encode(shot).decode("utf-8")}}
     except Exception as e:
         return {"error": {"code": -1, "message": f"scroll failed: {e}"}}
-
-
 
 
 # ---------------------------------------------------------------------------

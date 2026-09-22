@@ -11,6 +11,7 @@ const HUMAN_MAP = {
   'pw/tab_select': 'human/tab_select', 'pw/tab_close': 'human/tab_close',
   'pw/click': 'human/click', 'pw/hover': 'human/hover', 'pw/type': 'human/type',
   'pw/key': 'human/key', 'pw/clear': 'human/clear', 'pw/mouse_move': 'human/mouse_move',
+  'pw/clip_read': 'human/clip_read',
   'pw/mouse_down': 'human/mouse_down', 'pw/mouse_up': 'human/mouse_up', 'pw/scroll_at': 'human/scroll_at',
 };
 
@@ -510,6 +511,12 @@ document.addEventListener('keydown', async (e) => {
   if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
   if (document.getElementById('ai-settings-mask').classList.contains('show')) return;
   const key = e.key;
+  // Ctrl+C / Ctrl+V：本地↔远端剪贴板互通（键盘转发开启、焦点不在输入框时拦截）
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (key === 'c' || key === 'v')) {
+    e.preventDefault();
+    key === 'v' ? vkbPaste() : vkbCopy();
+    return;
+  }
   // 修饰键组合（Shift+Tab / Ctrl+Enter 等）：单字符+shift 的 e.key 已是结果字符（如 'A'）直接发；
   // meta/alt 组合不拦——浏览器/OS 快捷键（Cmd+W 等）优先，需要 Cmd/Alt 组合时用「⌨ 小键盘」
   const mods = [];
@@ -569,6 +576,46 @@ document.getElementById('vkb-input')?.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); vkbSendText(); }
 });
 
+/* ================= 剪贴板互通（本地 ↔ 远端） ================= */
+async function vkbPaste() {
+  // 优先直读本地剪贴板（https/localhost 可用）；http 域名无权限则回落到小键盘文本框手动贴
+  let text = '';
+  try {
+    if (navigator.clipboard?.readText) text = await navigator.clipboard.readText();
+  } catch (e) { /* 非 Secure Context 或权限拒绝 */ }
+  if (text) {
+    addChat('INFO', '粘贴到远端: ' + (text.length > 30 ? text.slice(0, 30) + '…' : text));
+    mcp('pw/type', { text, instant: true }).then(showShot);   // 真人模式自动路由 human/type（一次性 insertText）
+    return;
+  }
+  toggleVkb(true);
+  const el = document.getElementById('vkb-input');
+  el.value = '';
+  el.placeholder = '剪贴板直读不可用（http 页面无权限）：在这里 Ctrl+V 粘贴，再点「发送」';
+  el.focus();
+  toast('请在小键盘文本框里 Ctrl+V，再点发送');
+}
+async function vkbCopy() {
+  const r = await mcp('pw/clip_read');
+  const text = r?.result?.text || '';
+  if (!text) { toast('远端页面没有选中的文本', true); return; }
+  const box = document.getElementById('vkb-copybox');
+  const ta = document.getElementById('vkb-copy-text');
+  ta.value = text;
+  box.style.display = 'flex';
+  addChat('INFO', '远端选中 ' + text.length + ' 字符（面板里可复制回本地）');
+}
+function vkbCopyToLocal() {
+  const ta = document.getElementById('vkb-copy-text');
+  ta.select(); ta.setSelectionRange(0, ta.value.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  if (!ok && navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(ta.value).then(() => toast('已复制到本地剪贴板'), () => toast('复制失败，请手动 Ctrl+C', true));
+    return;
+  }
+  toast(ok ? '已复制到本地剪贴板' : '复制失败，请手动 Ctrl+C', !ok);
+}
 
 /* ================= 视口全屏 ================= */
 function toggleFullscreen() {
@@ -589,7 +636,6 @@ function _fsChanged() {
 }
 document.addEventListener('fullscreenchange', _fsChanged);
 document.addEventListener('webkitfullscreenchange', _fsChanged);   // Safari
-
 
 showMain();
 

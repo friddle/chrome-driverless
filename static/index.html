@@ -109,8 +109,18 @@
             <div class="vkb-text">
               <textarea id="vkb-input" rows="2" placeholder="多语言文本输入：切换系统输入法打字（中/英/日/韩…），Ctrl+Enter 或点「发送」写入页面"></textarea>
               <div class="vkb-text-btns">
+                <button class="btn" onclick="vkbPaste()" title="把本地剪贴板文本粘贴到远端页面（瞬时整段写入）；剪贴板无权限时弹框手动贴">📥 粘贴</button>
+                <button class="btn" onclick="vkbCopy()" title="复制远端页面选中的文字到本地（键盘转发开启时 Ctrl+C 同效）">📤 复制</button>
+                <span style="flex:1"></span>
                 <button class="btn btn-primary" onclick="vkbSendText()">发送</button>
                 <button class="btn" onclick="vkbClearText()">清空</button>
+              </div>
+            </div>
+            <div class="vkb-copybox" id="vkb-copybox" style="display:none;">
+              <textarea id="vkb-copy-text" rows="2" readonly></textarea>
+              <div class="vkb-text-btns">
+                <button class="btn btn-primary" onclick="vkbCopyToLocal()">⧉ 复制到本地剪贴板</button>
+                <button class="btn" onclick="document.getElementById('vkb-copybox').style.display='none'">收起</button>
               </div>
             </div>
             <div class="vkb-hint">修饰键点亮后点功能键 = 组合（如 Shift+Tab / Ctrl+Enter），发送后自动熄灭</div>

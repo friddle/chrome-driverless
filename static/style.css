@@ -182,3 +182,6 @@ select.input, select.btn { appearance:none; -webkit-appearance:none; padding-rig
 .vkb-text textarea:focus { border-color:var(--accent); }
 .vkb-text-btns { display:flex; gap:6px; }
 .vkb-hint { font-size:11px; color:var(--muted); line-height:1.5; }
+.vkb-copybox { display:flex; flex-direction:column; gap:6px; background:var(--bg); border:1px dashed #37424f; border-radius:8px; padding:8px; }
+.vkb-copybox textarea { width:100%; resize:vertical; min-height:44px; padding:6px 8px; background:var(--panel2);
+  border:1px solid var(--border); border-radius:6px; color:var(--accent2); font-size:12px; line-height:1.5; outline:none; font-family:var(--mono); }

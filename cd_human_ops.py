@@ -319,10 +319,15 @@ async def human_key(params):
 
 async def human_type(params):
     """输入文本：human/type {text}。ASCII 逐字符 keyDown/Up（带 30-90ms 随机间隔，触发
-    页面 keydown 监听）；非 ASCII（中文等）走 Input.insertText（组合输入的正确通道）。"""
+    页面 keydown 监听）；非 ASCII（中文等）走 Input.insertText（组合输入的正确通道）。
+    instant=true 粘贴语义：全量一次 Input.insertText（真实粘贴就是瞬时一整块）。"""
     text = params.get("text", "")
     if not text:
         return {"error": {"code": -2, "message": "text is required"}}
+    if params.get("instant"):
+        await _human_input("Input.insertText", {"text": text})
+        await asyncio.sleep(0.4)
+        return {"result": {"status": "pasted", "text": text, **await _human_shot()}}
     buf = ""
     for ch in text:
         if ord(ch) < 128:
@@ -334,6 +339,24 @@ async def human_type(params):
         await _human_input("Input.insertText", {"text": buf})
     await asyncio.sleep(0.4)
     return {"result": {"status": "typed", "text": text, **await _human_shot()}}
+
+
+_CLIP_EXPR = ("(()=>{const a=document.activeElement;"
+              "if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a.value"
+              "&&a.selectionStart!=null&&a.selectionEnd>a.selectionStart)"
+              "return a.value.slice(a.selectionStart,a.selectionEnd);"
+              "const s=String(window.getSelection?window.getSelection():'');"
+              "return s==='[object Selection]'?'':s;})()")
+
+
+async def human_clip_read(params=None):
+    """读远端页面选中文本（一次性 Runtime.evaluate，不 enable 不常驻，零注入原则不变）。
+    兼容 input/textarea 内的选中段。"""
+    await _human_targets_refresh()
+    ws, _ = _human_ws()
+    r = await _cdp_rpc(ws, "Runtime.evaluate", {"expression": _CLIP_EXPR, "returnByValue": True})
+    val = (r.get("result") or {}).get("value") or ""
+    return {"result": {"text": str(val)}}
 
 
 async def human_clear(params=None):
