@@ -7,7 +7,7 @@ from datetime import datetime
 import cd_config as C
 import cd_state as S
 from cd_actions import _motion_rng, _beat
-from cd_cdp import _cdp_http, _cdp_rpc, _human_targets_refresh, _human_ws, _human_input, _human_shot
+from cd_cdp import _cdp_http, _cdp_rpc, _human_targets_refresh, _human_ws, _human_input, _human_input_stream, _human_shot
 from cd_state import _add_log
 
 async def human_screenshot(params=None):
@@ -211,10 +211,14 @@ async def human_mouse_up(params):
 
 async def human_click(params):
     """raw CDP 人性化点击：v2 idle 微漂移（点击前 2-3 个无目标小位移）→ 移动 → 节拍按压/释放。
-    漂移与停顿时序走 cd_actions 的种子化节拍（HUMANIZE_SEED 可复现）。"""
+    漂移与停顿时序走 cd_actions 的种子化节拍（HUMANIZE_SEED 可复现）。
+    整组事件同一 WS 流发送——双击的 clickCount 累加（dblclick/选词）依赖同一输入流。"""
     button = params.get("button", "left")
     x, y = float(params.get("x", 0)), float(params.get("y", 0))
     clicks = 2 if params.get("double") else 1
+    _mv = lambda mx, my: ("Input.dispatchMouseEvent",
+                          {"type": "mouseMoved", "x": mx, "y": my, "button": "none"})
+    steps = []
     # idle 微漂移：以目标点为圆心做 2-3 个无目标小位移（点击前零指针事件比曲线形状更响）
     cx, cy = x, y
     for _ in range(_motion_rng.randint(2, 3)):
@@ -222,21 +226,18 @@ async def human_click(params):
         rad = _motion_rng.uniform(12, 40)
         cx = min(1438.0, max(2.0, cx + math.cos(ang) * rad))
         cy = min(898.0, max(2.0, cy + math.sin(ang) * rad))
-        await _human_input("Input.dispatchMouseEvent",
-                           {"type": "mouseMoved", "x": cx, "y": cy, "button": "none"})
-        await asyncio.sleep(_beat() * _motion_rng.uniform(2, 5))
-    await _human_input("Input.dispatchMouseEvent",
-                       {"type": "mouseMoved", "x": x, "y": y, "button": "none"})
+        steps.append(([_mv(cx, cy)], _beat() * _motion_rng.uniform(2, 5)))
+    steps.append(([_mv(x, y)], 0))
     for c in range(1, clicks + 1):
-        await _human_input("Input.dispatchMouseEvent",
-                           {"type": "mousePressed", "x": x, "y": y, "button": button,
-                            "buttons": 1 if button == "left" else 2, "clickCount": c})
-        await asyncio.sleep(_motion_rng.uniform(0.05, 0.12))
-        await _human_input("Input.dispatchMouseEvent",
-                           {"type": "mouseReleased", "x": x, "y": y, "button": button,
-                            "buttons": 0, "clickCount": c})
-        if c < clicks:
-            await asyncio.sleep(_motion_rng.uniform(0.08, 0.18))
+        press = ("Input.dispatchMouseEvent",
+                 {"type": "mousePressed", "x": x, "y": y, "button": button,
+                  "buttons": 1 if button == "left" else 2, "clickCount": c})
+        release = ("Input.dispatchMouseEvent",
+                   {"type": "mouseReleased", "x": x, "y": y, "button": button,
+                    "buttons": 0, "clickCount": c})
+        steps.append(([press], _motion_rng.uniform(0.05, 0.12)))
+        steps.append(([release], _motion_rng.uniform(0.08, 0.18) if c < clicks else 0))
+    await _human_input_stream(steps)
     await asyncio.sleep(0.6)
     return {"result": {"status": "clicked", "x": x, "y": y, **await _human_shot()}}
 

@@ -94,6 +94,26 @@ async def _human_input(cdp_method, cdp_params):
     return await _cdp_rpc(ws, cdp_method, cdp_params)
 
 
+async def _human_input_stream(steps):
+    """同一 WS 会话顺序执行输入步骤：steps = [([ (method, params), ... ], pause_s), ...]。
+    双击的 press/release 对必须在同一输入流里——Chromium 跨连接的事件不累加
+    clickCount/detail，会被识别成两次独立单击（dblclick 消失）。"""
+    await _human_targets_refresh()
+    ws, _ = _human_ws()
+    async with websockets.connect(ws, max_size=64 * 1024 * 1024) as conn:
+        mid = random.randint(1, 10 ** 9)
+        for events, pause in steps:
+            for method, params in events:
+                await conn.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+                while True:
+                    msg = json.loads(await asyncio.wait_for(conn.recv(), 20))
+                    if msg.get("id") == mid:
+                        break
+                mid += 1
+            if pause:
+                await asyncio.sleep(pause)
+
+
 async def _human_shot(idx=None):
     """当前（或指定）tab 截图：Page.captureScreenshot（无需 enable，页面零感知）。"""
     await _human_targets_refresh()
