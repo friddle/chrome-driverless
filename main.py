@@ -12,6 +12,7 @@ import cd_routes  # noqa: F401  注册 HTTP/WS 路由（含 /static 挂载）
 import cd_audio  # noqa: F401  注册 /audio.mp3 声音流（pulse → parec → ffmpeg → mp3）
 import cd_browser as B
 import cd_actions as A
+import cd_autologin as AL
 import cd_human as H
 import cd_human_ops as HO
 import cd_ai as AI
@@ -52,7 +53,7 @@ async def _dispatch(method, params):
         "pw/reload": lambda: A.pw_reload(params),
         "pw/elements": lambda: A.pw_elements(params),
         "pw/clear": lambda: A.pw_clear(params),
-        "pw/auto_login": lambda: A.pw_auto_login(params),
+        "pw/auto_login": lambda: AL.pw_auto_login(params),
         "pw/profile_list": lambda: B.pw_profile_list(),
         "pw/profile_set": lambda: B.pw_profile_set(params),
         "pw/evaluate": lambda: A.pw_evaluate(params),
