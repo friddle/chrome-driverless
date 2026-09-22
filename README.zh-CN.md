@@ -13,6 +13,7 @@
 - **指纹档案** —— `真实` / Chrome·Win / Chrome·Mac / Safari·Mac 四套，HTTP UA、JS platform/vendor/userAgentData、`sec-ch-ua` 网络头整套自洽
 - **stealth 审计** —— 经典 0-7 号反检测排查清单可运行化（`pw/stealth_audit`、`human/stealth_audit`）
 - **人性化输入** —— 鼠标轨迹 + 击键节奏，可用 `HUMANIZE_SEED` 固定随机种子复现
+- **剪贴板互通** —— Ctrl+C / Ctrl+V 在本地与远端页面间桥接（粘贴 = 一次性 insertText，复制读远端选中文字）
 - **网络一致性** —— 浏览器时区与代理出口时区对齐；UA / `sec-ch-ua` 自洽
 - **真 Google Chrome 引擎** —— `BROWSER_ENGINE=chrome` 启用，brands + Widevine 原生自洽（一次解决 CfT 二进制的两大指纹硬伤）
 - **GPU 直通** —— WebGL 渲染器探测，有 GPU 默认直通（消除 SwiftShader 软渲染特征）
@@ -78,7 +79,8 @@ docker run -d -p 9223:9223 -v chrome-data:/app/data \
 | `pw/init_browser` | 初始化 / 复用持久化浏览器 |
 | `pw/navigate`, `pw/back`, `pw/reload` | 导航 / 回退 / 刷新（返回截图） |
 | `pw/screenshot` | 当前页截图（base64） |
-| `pw/click`, `pw/hover`, `pw/type`, `pw/key`, `pw/clear` | 人性化点击 / 悬停 / 输入 / 按键 / 清空 |
+| `pw/click`, `pw/hover`, `pw/type`, `pw/key`, `pw/clear` | 人性化点击 / 悬停 / 输入（`instant` = 粘贴语义）/ 按键 / 清空 |
+| `pw/clip_read`, `human/clip_read` | 读远端页面选中的文字（剪贴板互通的复制侧） |
 | `pw/evaluate` | 在当前页执行 JS |
 | `pw/elements` | 列出可交互元素（id / selector / 坐标） |
 | `pw/auto_login` | 环境变量驱动的表单登录（含二维码→密码 Tab 切换） |

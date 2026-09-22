@@ -13,6 +13,7 @@ A **persistent, headed Chrome** driven by Playwright, exposed through an **MCP-s
 - **Fingerprint profiles** — `real` / Chrome·Win / Chrome·Mac / Safari·Mac, each self-consistent across HTTP `User-Agent`, JS `platform`/`vendor`/`userAgentData`, and `sec-ch-ua` headers
 - **Stealth audit** — the classic 0–7 anti-detection checklist made runnable in one call (`pw/stealth_audit`, `human/stealth_audit`)
 - **Humanized input** — mouse trajectories and keystroke cadence with reproducible seeds (`HUMANIZE_SEED`)
+- **Clipboard interop** — Ctrl+C / Ctrl+V bridged between your machine and the remote page (paste = one-shot insertText, copy reads the remote selection)
 - **Network consistency** — browser timezone aligned with the proxy's egress timezone; UA / `sec-ch-ua` coherence
 - **Real Google Chrome engine** — set `BROWSER_ENGINE=chrome` for native brands + Widevine (fixes the two biggest Chromium-for-Testing fingerprint tells)
 - **GPU passthrough** — WebGL renderer probing; real GPU by default when available (no SwiftShader software-rendering tell)
@@ -78,7 +79,8 @@ Open `http://localhost:9223/` for the console.
 | `pw/init_browser` | Init / reuse the persistent browser |
 | `pw/navigate`, `pw/back`, `pw/reload` | Navigation (returns screenshot) |
 | `pw/screenshot` | Screenshot of the current page (base64) |
-| `pw/click`, `pw/hover`, `pw/type`, `pw/key`, `pw/clear` | Humanized click / hover / typing / key / clear |
+| `pw/click`, `pw/hover`, `pw/type`, `pw/key`, `pw/clear` | Humanized click / hover / typing (`instant` = paste semantics) / key / clear |
+| `pw/clip_read`, `human/clip_read` | Read the remote page's selected text (clipboard-interop copy side) |
 | `pw/evaluate` | Run JS in the current page |
 | `pw/elements` | List interactive elements (id / selector / coordinates) |
 | `pw/auto_login` | Env-driven form login (QR → password tab switch included) |
