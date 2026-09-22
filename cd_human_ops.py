@@ -43,7 +43,7 @@ async def human_navigate(params):
     url = (params.get("url") or "").strip()
     if not url:
         return {"error": {"code": -2, "message": "url is required"}}
-    if not re.match(r"^[a-zA-Z]+://", url):
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", url):  # scheme: 形式（含 data:/about:/file: 这类无 // 的）
         url = "https://" + url
     settle_ms = int(params.get("settle_ms", 6000) or 6000)
     try:
@@ -96,7 +96,7 @@ async def human_reload(params=None):
 
 async def human_new_tab(params):
     url = (params.get("url") or "about:blank").strip() or "about:blank"
-    if not re.match(r"^[a-zA-Z]+://", url):
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", url):
         url = "https://" + url
     try:
         t = await _cdp_http("/json/new", method="PUT")
