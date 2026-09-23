@@ -25,12 +25,14 @@ _EXTRACT_JS = r"""() => {
   const accepted = [];   // 已收录元素（用于「顶层可点击祖先优先」去重）
 
   function cssPath(el) {
-    if (el.id) return '#' + CSS.escape(el.id);
+    // id 只有全文档唯一时才用（阿里云登录页有 3 个同 id 的 #alibaba-login-box iframe，
+    // frame_locator 严格匹配会 strict mode violation）
+    if (el.id && document.querySelectorAll('#' + CSS.escape(el.id)).length === 1) return '#' + CSS.escape(el.id);
     const parts = [];
     let node = el, depth = 0;
     while (node && node.nodeType === 1 && depth < 6) {
       let p = node.tagName.toLowerCase();
-      if (node.id) { parts.unshift('#' + CSS.escape(node.id)); break; }
+      if (node.id && document.querySelectorAll('#' + CSS.escape(node.id)).length === 1) { parts.unshift('#' + CSS.escape(node.id)); break; }
       const parent = node.parentNode;
       if (parent && parent.children) {
         const sibs = Array.from(parent.children).filter(c => c.tagName === node.tagName);
@@ -39,7 +41,7 @@ _EXTRACT_JS = r"""() => {
       parts.unshift(p);
       node = node.parentNode;
       depth++;
-      if (node && node.id) { parts.unshift('#' + CSS.escape(node.id)); break; }
+      if (node && node.id && document.querySelectorAll('#' + CSS.escape(node.id)).length === 1) { parts.unshift('#' + CSS.escape(node.id)); break; }
     }
     return parts.join(' > ');
   }
@@ -137,19 +139,9 @@ _EXTRACT_JS = r"""() => {
       accepted.push(el);
       out.push(serialize(el, doc, frameCss, ox, oy));
     }
-    // 同源 iframe 递归（登录表单常在 iframe 里，不进去 agent 就是瞎的）
-    if (depth < 2) {
-      for (const f of doc.querySelectorAll('iframe')) {
-        if (out.length >= %MAX_ELEMENTS%) break;
-        try {
-          if (!visible(f)) continue;
-          const fd = f.contentDocument;
-          if (!fd || !fd.body) continue;       // 跨域 iframe 拒绝访问，跳过
-          const r = f.getBoundingClientRect();
-          collect(fd, cssPath(f), ox + r.x, oy + r.y, depth + 1);
-        } catch (e) { /* cross-origin */ }
-      }
-    }
+    // iframe 不在此递归：同源 contentDocument 与跨域一并不走 JS
+    // （跨域 iframe JS 拒绝访问——阿里云登录表单在 passport 子域 iframe 里），
+    // 由 Python 侧 page.frames() 枚举每个 frame 单独提取，frame 链/绝对坐标后补。
   }
 
   collect(document, '', 0, 0, 0);
@@ -160,16 +152,68 @@ _EXTRACT_JS = r"""() => {
 }""".replace("%MAX_ELEMENTS%", str(MAX_ELEMENTS))
 
 
+_CSS_PATH_JS = """el => {
+  const uid = n => n.id && document.querySelectorAll('#' + CSS.escape(n.id)).length === 1;
+  if (uid(el)) return '#' + CSS.escape(el.id);
+  const parts = [];
+  let node = el, depth = 0;
+  while (node && node.nodeType === 1 && depth < 6) {
+    let p = node.tagName.toLowerCase();
+    if (uid(node)) { parts.unshift('#' + CSS.escape(node.id)); break; }
+    const parent = node.parentNode;
+    if (parent && parent.children) {
+      const sibs = Array.from(parent.children).filter(c => c.tagName === node.tagName);
+      if (sibs.length > 1) p += ':nth-of-type(' + (sibs.indexOf(node) + 1) + ')';
+    }
+    parts.unshift(p);
+    node = node.parentNode;
+    depth++;
+    if (uid(node)) { parts.unshift('#' + CSS.escape(node.id)); break; }
+  }
+  return parts.join(' > ');
+}"""
+
+
 async def _extract_state(page):
-    """提取当前页面状态（URL/标题/文本/编号元素表）。"""
+    """提取当前页面状态（URL/标题/文本/编号元素表）。
+    iframe 统一走 Playwright frame 枚举：JS contentDocument 进不去跨域 iframe
+    （阿里云登录表单在 passport 子域 iframe），frame 级 evaluate 不受同源限制。"""
     data = await page.evaluate(_EXTRACT_JS)
+    elements = data.get("elements", [])
+    for fr in page.frames:
+        if fr is page.main_frame:
+            continue
+        try:
+            fe = await fr.frame_element()
+            box = await fe.bounding_box()
+            if not box:
+                continue
+            # 嵌套 iframe 的 frame_locator 链（每层 iframe 的 css 路径，根→叶）
+            chain = []
+            cur = fr
+            while cur is not None and cur is not page.main_frame:
+                css = await (await cur.frame_element()).evaluate(_CSS_PATH_JS)
+                chain.insert(0, css)
+                cur = cur.parent_frame
+            fdata = await fr.evaluate(_EXTRACT_JS)
+            for e in fdata.get("elements", []):
+                if len(elements) >= MAX_ELEMENTS:
+                    break
+                # bounding_box 返回主 frame 视口绝对坐标（嵌套已含），frame 内坐标直接平移
+                e["x"] = e["x"] + round(box["x"])
+                e["y"] = e["y"] + round(box["y"])
+                e["frame"] = chain
+                elements.append(e)
+        except Exception:
+            continue   # frame 正在导航/销毁
+    data["elements"] = elements[:MAX_ELEMENTS]
     text = data.get("text", "") or ""
     head = text[:PAGE_TEXT_CHARS]
     if len(text) > PAGE_TEXT_CHARS:
         head += "\n…(文本过长截断，可 scroll 后再看)"
     state = {
         "url": data.get("url", ""), "title": (data.get("title") or "")[:100],
-        "elements": data.get("elements", []), "text": head,
+        "elements": data["elements"], "text": head,
     }
     return state
 
@@ -215,8 +259,8 @@ _SYSTEM_PROMPT = """你是一个浏览器自动化 Agent（browser-use 架构）
 - {"action":"navigate", "url":"https://..."}
 - {"action":"click", "index": 元素编号}
 - {"action":"click_text", "text":"可见文字"}        # 无合适编号时的兜底，按可见文本点击
-- {"action":"type", "index": 元素编号, "text":"输入内容", "clear": true}   # 输入框；clear=true 先清空
-- {"action":"press", "key":"Enter"}                  # Tab/Escape/ArrowDown 等
+- {"action":"type", "index": 元素编号, "text":"输入内容", "clear": true}   # 输入框；clear=true 先清空；密码安全控件等按键无效时加 "paste":true（直接设值）
+- {"action":"press", "key":"Enter"}                  # Tab/Escape/ArrowDown 等；可带 "index" 对指定元素按键（iframe 内输入必带 index）
 - {"action":"select", "index": 元素编号, "value":"选项value"}   # 下拉框
 - {"action":"scroll", "direction":"down|up", "amount": 像素}   # amount 缺省 600
 - {"action":"scroll_to", "index": 元素编号}          # 滚动到视口外元素
@@ -239,13 +283,14 @@ _SYSTEM_PROMPT = """你是一个浏览器自动化 Agent（browser-use 架构）
 # ---------------- 动作执行 ----------------
 
 def _locator(page, el):
-    """元素数据 → Playwright Locator（支持 iframe 内元素）。"""
+    """元素数据 → Playwright Locator（支持（嵌套）iframe 内元素，frame=每层 iframe 的 css 链）。"""
     css = el.get("css") or ""
     if not css:
         raise RuntimeError("元素缺少 css 路径")
-    if el.get("frame"):
-        return page.frame_locator(el["frame"]).locator(css)
-    return page.locator(css).first
+    loc = page
+    for fcss in (el.get("frame") or []):
+        loc = loc.frame_locator(fcss)
+    return loc.locator(css).first
 
 
 async def _act(page, act, state):
@@ -291,15 +336,32 @@ async def _act(page, act, state):
             await loc.click(timeout=6000)
         except Exception:
             await _raw_click(page, el["x"], el["y"])
+        # locator 级输入：page.keyboard 走主 frame 的 CDP 会话，进不去跨域 iframe
+        # （阿里云密码安全控件=OOPIF，keyboard.type 打进去值不落框）
         if act.get("clear"):
-            await page.keyboard.press("ControlOrMeta+a")
-            await page.keyboard.press("Delete")
-        await page.keyboard.type(str(act.get("text", "")), delay=_motion_rng.uniform(35, 90))
-        return f"ok: 已在 [{act.get('index')}] {el['tag']} 输入内容(len={len(str(act.get('text','')))})"
+            await loc.press("ControlOrMeta+a")
+            await loc.press("Delete")
+        text = str(act.get("text", ""))
+        try:
+            if act.get("paste"):
+                # 粘贴语义：fill 走 frame session 的 DOM 设值，密码安全控件(OOPIF 自绘)按键无效时用
+                await loc.fill(text)
+            else:
+                await loc.press_sequentially(text, delay=_motion_rng.uniform(35, 90))
+        except AttributeError:   # 旧版 playwright 无 press_sequentially
+            await loc.type(text, delay=_motion_rng.uniform(35, 90))
+        return f"ok: 已在 [{act.get('index')}] {el['tag']} 输入内容(len={len(text)})"
 
     if kind == "press":
-        await page.keyboard.press(str(act.get("key", "Enter")))
-        return f"ok: 已按键 {act.get('key')}"
+        key = str(act.get("key", "Enter"))
+        # 带 index = 元素级按键（locator 路由到 frame 的 session，跨域 iframe/密码安全控件内有效；
+        # 无 index 走 page.keyboard，主 frame 上下文）
+        if act.get("index"):
+            el = el_by_index(act.get("index"))
+            await _locator(page, el).press(key, timeout=6000)
+        else:
+            await page.keyboard.press(key)
+        return f"ok: 已按键 {key}"
 
     if kind == "select":
         el = el_by_index(act.get("index"))
@@ -398,7 +460,9 @@ async def run_agent(params):
         return {"error": {"code": -2, "message": "真人模式运行中（无 Playwright）：请先关闭真人模式再用 AI 任务"}}
 
     await _add_log("INFO", f"[Agent] 任务开始: {task[:120]} (max_steps={max_steps}, vision={use_vision}, model={cfg['model']})")
-    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    # 任务全文进 system prompt：每步可见，不会被历史压缩吃掉
+    # （此前任务只随 step 1 的 state 消息发送，KEEP_FULL_STATES 压缩后模型"忘了"账号密码）
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT + "\n\n[当前任务]\n" + task}]
     state_urls = []       # (message_index, url) 用于历史压缩
     history = []          # 返回给前端的人读摘要
     llm_fail = parse_fail = 0
@@ -419,7 +483,7 @@ async def run_agent(params):
                 return {"error": {"code": -1, "message": f"页面状态提取失败: {e2}"}}
 
         state_msg = _state_message(state, step)
-        content = state_msg + "\n\n[任务] " + task if step == 1 else state_msg
+        content = state_msg
         # 视觉模型附截图（JPEG 压缩省 token）；调用失败自动降级纯文本
         if use_vision:
             try:
@@ -477,6 +541,7 @@ async def run_agent(params):
                 observations.append(await _act(page, act, state))
             except Exception as e:
                 observations.append(f"failed: {str(e)[:160]}")
+            await _add_log("INFO", f"[Agent]   ↳ {act.get('action')} → {observations[-1][:120]}")
         if S.ai_cancel_evt.is_set():
             S.ai_cancel_evt.clear()
             await _add_log("WARN", "[Agent] 已取消")
