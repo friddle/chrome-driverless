@@ -167,7 +167,12 @@ async def pw_screenshot(params: dict = None):
     page = await _page_for(params or {})
     if not page:
         return {"error": {"code": -1, "message": "Browser init failed (or index out of range)"}}
-    screenshot_bytes = await page.screenshot(type="png")
+    # fullPage: 整页截图（长页面）；waitMs: 截图前等待，给 SPA 渲染留时间
+    full_page = bool((params or {}).get("fullPage", False))
+    wait_ms = int((params or {}).get("waitMs") or 0)
+    if wait_ms > 0:
+        await asyncio.sleep(wait_ms / 1000)
+    screenshot_bytes = await page.screenshot(type="png", full_page=full_page)
     return {"result": {"image": base64.b64encode(screenshot_bytes).decode("utf-8"), "url": page.url}}
 
 
@@ -194,7 +199,12 @@ async def pw_navigate(params):
     if last_err:
         return {"error": {"code": -1, "message": f"navigate failed: {last_err}"}}
     await asyncio.sleep(2)
-    screenshot_bytes = await page.screenshot(type="png")
+    # fullPage / waitMs：同 pw/screenshot
+    full_page = bool(params.get("fullPage", False))
+    wait_ms = int(params.get("waitMs") or 0)
+    if wait_ms > 0:
+        await asyncio.sleep(wait_ms / 1000)
+    screenshot_bytes = await page.screenshot(type="png", full_page=full_page)
     return {"result": {"status": "navigated", "url": page.url, "image": base64.b64encode(screenshot_bytes).decode("utf-8")}}
 
 
