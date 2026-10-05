@@ -1,5 +1,5 @@
 
-const API = window.location.origin + '/mcp';
+const API = 'mcp';
 let proxyEnabled = false;
 
 /* ================= 真人模式 / GPU 状态 ================= */
@@ -19,7 +19,7 @@ const HUMAN_MAP = {
 let remoteAudioEl = null, remoteAudioOn = false;
 function toggleRemoteAudio() {
   if (!remoteAudioEl) {
-    remoteAudioEl = new Audio('/audio.mp3');
+    remoteAudioEl = new Audio('audio.mp3');
     remoteAudioEl.volume = 0.9;
   }
   remoteAudioOn = !remoteAudioOn;
@@ -329,7 +329,7 @@ async function doCmd() {
   // 实时进度：轮询服务端日志里的 [Agent] 行（每步 thought/actions 都会写日志）
   aiProgressTimer = setInterval(async () => {
     try {
-      const r = await fetch('/debug/logs').then(x => x.json());
+      const r = await fetch('debug/logs').then(x => x.json());
       const lines = (r.logs || []).filter(l => (l.msg || '').includes('[Agent]'));
       if (lines.length) document.getElementById('ai-running-text').textContent = lines[lines.length - 1].msg.slice(0, 90);
     } catch (e) {}
@@ -426,7 +426,7 @@ document.getElementById('ai-settings-mask').addEventListener('click', (e) => {
 /* ================= DevTools ================= */
 async function openDevtools() {
   try {
-    const r = await fetch('/devtools/targets').then(x => x.json());
+    const r = await fetch('devtools/targets').then(x => x.json());
     const targets = r.targets || [];
     if (!targets.length) { toast('无可用 DevTools 目标（先启动浏览器）', true); return; }
     const cur = tabsCache.find(t => t.active);
@@ -440,9 +440,9 @@ async function openDevtools() {
 /* ================= 状态轮询 ================= */
 async function refreshStatus() {
   const [statusR, logsR, filesR, humanR] = await Promise.all([
-    fetch('/debug/status').then(r => r.json()).catch(() => null),
-    fetch('/debug/logs').then(r => r.json()).catch(() => null),
-    fetch('/debug/files').then(r => r.json()).catch(() => null),
+    fetch('debug/status').then(r => r.json()).catch(() => null),
+    fetch('debug/logs').then(r => r.json()).catch(() => null),
+    fetch('debug/files').then(r => r.json()).catch(() => null),
     mcp('human/status')
   ]);
   if (humanR?.result) updateModeButtons(humanR.result);
