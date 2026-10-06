@@ -449,6 +449,8 @@ async function refreshStatus() {
   if (statusR) {
     document.getElementById('st-browser').textContent = (humanR?.result?.human_mode || HUMAN) ? '真人模式' : (statusR.pw_context ? '运行中' : '未启动');
     document.getElementById('st-task').textContent = statusR.task_busy ? 'BUSY' : 'IDLE';
+    const dot = document.getElementById('st-dot');
+    if (dot) dot.className = 'dot ' + (statusR.task_busy ? 'busy' : (statusR.pw_context ? 'run' : ''));
     const tb = document.getElementById('task-badge');
     tb.textContent = statusR.task_busy ? 'BUSY' : 'IDLE';
     tb.className = 'badge ' + (statusR.task_busy ? 'badge-busy' : 'badge-idle');
@@ -632,10 +634,67 @@ function _fsChanged() {
   const b = document.getElementById('fs-btn');
   b.classList.toggle('on', on);
   b.textContent = on ? '⛶ 退出全屏' : '⛶ 全屏';
+  // 全屏 = 直接模拟页面访问：自动开启键盘转发（点击转发本来就常开），退出时还原
+  const kb = document.getElementById('kb-fwd');
+  if (kb) {
+    kb.checked = on;
+    kbActive = on;
+  }
+  if (on) { vpOuter.focus(); toast('全屏：点击/键盘已直通页面（Esc 退出）'); }
+  else if (kb) { addChat('INFO', '退出全屏，键盘转发已关闭'); }
   vpFit();                    // 全屏/退出后视口尺寸变了，重新适应
 }
 document.addEventListener('fullscreenchange', _fsChanged);
 document.addEventListener('webkitfullscreenchange', _fsChanged);   // Safari
+
+/* ================= 高级面板 / 触摸板折叠 / 分栏拖拽 ================= */
+function toggleAdvanced(ev) {
+  ev?.stopPropagation();
+  const p = document.getElementById('adv-pop');
+  const show = p.style.display === 'none';
+  p.style.display = show ? 'flex' : 'none';
+  document.getElementById('adv-btn').classList.toggle('on', show);
+}
+document.addEventListener('click', (e) => {
+  const p = document.getElementById('adv-pop');
+  if (p && p.style.display !== 'none' && !p.contains(e.target) && e.target.id !== 'adv-btn') {
+    p.style.display = 'none';
+    document.getElementById('adv-btn').classList.remove('on');
+  }
+});
+function toggleTrackpad() {
+  document.getElementById('tp-card').classList.toggle('collapsed');
+  requestAnimationFrame(vpFit);   // 折叠/展开改变视口高度，重新适应
+}
+// 分栏拖拽：拖中间竖条调整右栏宽度（320~640px）
+(() => {
+  const d = document.getElementById('vdivider'), r = document.getElementById('right-col');
+  if (!d || !r) return;
+  let startX = 0, startW = 0;
+  const down = (e) => {
+    startX = e.clientX; startW = r.getBoundingClientRect().width;
+    d.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  };
+  const move = (e) => {
+    if (!d.classList.contains('dragging')) return;
+    const w = Math.min(640, Math.max(320, startW - (e.clientX - startX)));
+    r.style.width = w + 'px';
+    vpFit();
+  };
+  const up = () => {
+    if (!d.classList.contains('dragging')) return;
+    d.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    vpFit();
+  };
+  d.addEventListener('mousedown', down);
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+})();
 
 showMain();
 
