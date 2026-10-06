@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chrome Driverless</title>
-<link rel="stylesheet" href="static/style.css">
+<link rel="stylesheet" href="static/style.css?v=2">
 
 </head>
 <body>
@@ -241,8 +241,10 @@
         </div>
       </div>
 
-      <div class="card log-card">
-        <div class="card-head"><span class="icon">📜</span><h2>日志</h2></div>
+      <div class="card log-card" id="log-card">
+        <div class="card-head"><span class="icon">📜</span><h2>日志</h2><span class="spacer"></span>
+          <span class="collapse-arrow" onclick="toggleCard('log-card')" title="收起/展开日志">▼</span>
+        </div>
         <div class="terminal" id="log-terminal"></div>
       </div>
     </div>
@@ -277,7 +279,7 @@
 
 <div id="toast"></div>
 
-<script src="static/js/app.js"></script>
-<script src="static/js/viewport.js"></script>
+<script src="static/js/app.js?v=2"></script>
+<script src="static/js/viewport.js?v=2"></script>
 </body>
 </html>
