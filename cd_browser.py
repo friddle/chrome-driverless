@@ -172,7 +172,9 @@ async def _ensure_pw_context():
 
     S.pw_instance = await async_playwright().start()
     opts = _browser_opts()
-    opts["headless"] = False  # 有头模式（配合 xvfb 虚拟显示），规避 Google/阿里云 headless 检测
+    # 有头模式（配合 xvfb 虚拟显示）规避 headless 检测; PW_HEADLESS=1 强制真无头 —
+    # 宿主 Xvfb 环境损坏 (缺字体/缺 xorg modules/libpciaccess 扫 PCI 段错误) 时无头是兜底出路
+    opts["headless"] = os.environ.get("PW_HEADLESS", "") == "1"
     opts["user_data_dir"] = S.BROWSER_PROFILE_DIR
     # 引擎选择：BROWSER_ENGINE=chrome 时用镜像内真 Google Chrome（UA/brands/Widevine 原生自洽）
     bin_path, engine_kind = _engine_binary()
