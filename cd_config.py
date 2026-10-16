@@ -27,6 +27,10 @@ HTTP_PROXY = os.environ.get("HTTP_PROXY") or os.environ.get("HTTP_PROXY_DEFAULT"
 HTTPS_PROXY = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTPS_PROXY_DEFAULT", "")
 # NO_PROXY：走代理时的直连白名单（本地/回环），外网站点默认走代理
 NO_PROXY = os.environ.get("NO_PROXY", "localhost,127.0.0.1,::1")
+# 防御: 内网/自建域名始终直连 (代理对这些域不稳时会整站打不开); 不会覆盖用户显式加的白名单
+_internal_bypass = [d for d in ".code27.cn,.friddle.me".split(",") if d not in NO_PROXY]
+if _internal_bypass:
+    NO_PROXY = NO_PROXY + "," + ",".join(_internal_bypass)
 
 EXTERNAL_URL = os.environ.get("EXTERNAL_URL", "")
 
