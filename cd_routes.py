@@ -42,6 +42,7 @@ async def debug_status():
         "pw_context": S.pw_context is not None,
         "pages": [],
         "task_busy": S.task_busy,
+        "tab_busy": dict(S.tab_busy),
         "data_dir": DATA_DIR,
     }
     if S.pw_context and S.pw_context.pages:

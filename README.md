@@ -84,7 +84,7 @@ Open `http://localhost:9223/` for the console.
 | `pw/evaluate` | Run JS in the current page |
 | `pw/elements` | List interactive elements (id / selector / coordinates) |
 | `pw/auto_login` | Env-driven form login (QR → password tab switch included) |
-| `pw/tabs`, `pw/tab_select`, `pw/tab_close`, `pw/tab_close_all`, `pw/tab_tag`, `pw/new_tab` | Multi-tab management |
+| `pw/tabs`, `pw/tab_select`, `pw/tab_close`, `pw/tab_close_all`, `pw/tab_tag`, `pw/new_tab` | Multi-tab management (`pw/new_tab {tab: name}` named create, idempotent reuse, returns tab name) |
 | `pw/profile_list`, `pw/profile_set` | Profile-isolated login states |
 | `pw/save_auth` | Export current login state to auth.json |
 | `pw/set_proxy` | Toggle browser proxy (aligns timezone to egress) |
@@ -99,6 +99,16 @@ Open `http://localhost:9223/` for the console.
 | `human/stealth_audit` | Stealth audit inside human mode |
 | `fp/set` | Fingerprint profile: `real` \| `chrome_win` \| `chrome_mac` \| `safari_mac` |
 | `ai/config_get`, `ai/config_set`, `ai/test`, `ai/cancel` | AI task configuration |
+
+### Multi-tab concurrency & per-tab lock
+
+One profile supports operating multiple tabs at the same time. Convention:
+
+1. `pw/new_tab {tab: "my-task", url: ...}` creates (or reuses) a named tab; the response carries the `tab` name;
+2. Any later `pw/*` call with `{tab: "my-task"}` runs on that tab (resolved by name; unknown names fail with `tab not found`);
+3. Lock granularity is per tab: requests on the **same** tab are serialized — the next request starts only after the previous one finishes (locked automatically before execution); different tabs run **concurrently**;
+4. Calls without `tab` take the global lock (single-browser serial semantics unchanged); `ai/cancel` bypasses locks so long tasks can always be interrupted;
+5. `/debug/status` exposes `tab_busy` showing which named tabs currently have a task running.
 
 ## Module map
 

@@ -22,8 +22,10 @@ pw_active_page = None   # MCP 会话当前操作的 tab
 tab_tags = {}           # id(page) -> 任务标签
 
 use_proxy = True  # 默认启用代理（外网站点走代理，本地/回环白名单由 NO_PROXY 直连）
-task_lock = asyncio.Lock()
+task_lock = asyncio.Lock()  # 全局任务锁：未指定 tab 的任务、结构性操作（代理/profile/真人模式切换）
 task_busy = False
+tab_locks = {}  # tab 名 → asyncio.Lock：同名 tab 的任务串行（前一个请求结束才执行下一个），不同 tab 并发
+tab_busy = {}   # tab 名 → bool：该 tab 是否有任务在跑（/debug/status 展示）
 mcp_logs = deque(maxlen=500)
 mcp_logs_lock = asyncio.Lock()
 ai_cancel_evt = asyncio.Event()
@@ -83,6 +85,15 @@ def _save_browser_state():
             json.dump({"human_mode": human_mode, "fp_profile": FP_PROFILE}, f)
     except Exception:
         pass
+
+
+def _tab_lock(name):
+    """取/建某 tab 名的任务锁（asyncio 单线程事件循环内取用，无需额外互斥）。"""
+    lk = tab_locks.get(name)
+    if lk is None:
+        lk = asyncio.Lock()
+        tab_locks[name] = lk
+    return lk
 
 
 _load_browser_state()

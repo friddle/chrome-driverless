@@ -242,14 +242,23 @@ async def _ensure_pw_context():
 async def _page_for(params: dict):
     """解析 MCP 调用的目标页面。
 
-    优先级：params["index"]（显式指定 tab，与 pw/tabs 编号一致）> S.pw_active_page >
+    优先级：params["tab"]（按 tab 名/任务标签定位，pw/new_tab 创建时命名的）>
+    params["index"]（显式指定 tab，与 pw/tabs 编号一致）> S.pw_active_page >
     最近打开的页面。解决 active page 漂移问题：弹窗/新tab/页面关闭后，evaluate、
-    click 等不再打到意料之外的页面上。显式传入 index 且越界时返回 None（调用方报错）。
+    click 等不再打到意料之外的页面上。显式传入 tab/index 且找不到时抛错（调用方
+    经 _dispatch 统一转成 error 返回）。按 tab 名定位不改动 active page——
+    多 tab 并发时互不干扰默认目标。
     """
     await _ensure_pw_context()
     if not S.pw_context or not S.pw_context.pages:
         return None
     pages = S.pw_context.pages
+    name = str((params or {}).get("tab") or "").strip()
+    if name:
+        for p in pages:
+            if S.tab_tags.get(id(p), "") == name and not p.is_closed():
+                return p
+        raise RuntimeError(f"tab not found: {name}（用 pw/tabs 查看现有 tab 名）")
     if params.get("index") is not None:
         try:
             i = int(params["index"])
@@ -326,6 +335,7 @@ async def pw_tab_close(params):
     target = pages[idx]
     url = target.url
     tag = S.tab_tags.pop(id(target), "")
+    S.tab_busy.pop(tag, None)  # 该 tab 的占用标记一并清掉
     try:
         await target.close()
     except Exception as e:
@@ -338,7 +348,8 @@ async def pw_tab_close(params):
 
 async def pw_tab_tag(params):
     """给当前/指定 tab 打任务标签（浏览器状态栏可见、前端 tabs 列表展示）：
-    pw/tab_tag {index?, tag}。tag 为空则清除该 tab 标签。"""
+    pw/tab_tag {index?, tag}。tag 即 tab 名：{tab: 名} 定位与 per-tab 锁的粒度。
+    tag 为空则清除该 tab 标签。"""
     if not S.pw_context:
         return {"error": {"code": -1, "message": "No browser context"}}
     tag = str(params.get("tag", "")).strip()
@@ -386,6 +397,7 @@ async def pw_tab_close_all(params):
         if pat and not pat.search(url) and not pat.search(title):
             continue
         tag = S.tab_tags.pop(id(p), "")
+        S.tab_busy.pop(tag, None)
         try:
             await p.close()
             closed += 1
@@ -438,16 +450,30 @@ async def pw_profile_set(params):
 
 
 async def pw_new_tab(params):
-    """新开 tab（可选 url，缺省 about:blank）并设为当前操作 tab：pw/new_tab {url}。"""
+    """新开 tab 并设为当前操作 tab：pw/new_tab {url?, tab?}。
+    tab：给新 tab 命名（即任务标签/锁粒度）。同名 tab 已存在且未关闭时直接复用
+    （幂等创建），返回体带 tab 名。后续 MCP 调用带 {tab: 名字} 即在该 tab 上执行：
+    同名 tab 的任务一个请求结束后才执行下一个（per-tab 锁），不同 tab 可同时操作。"""
     if not S.pw_context:
         page = await _ensure_pw_context()
         if not page:
             return {"error": {"code": -1, "message": "Browser init failed"}}
+    name = str(params.get("tab") or "").strip()
+    if name:  # 幂等创建：同名未关闭 tab 直接复用，不重复开
+        for p in S.pw_context.pages:
+            if S.tab_tags.get(id(p), "") == name and not p.is_closed():
+                S.pw_active_page = p
+                idx = S.pw_context.pages.index(p)
+                await _add_log("INFO", f"[Tab] reuse #{idx} tab={name} {p.url[:80]}")
+                return {"result": {"status": "ok", "tab": name, "index": idx,
+                                   "url": p.url, "reused": True}}
     url = params.get("url") or "about:blank"
     page = await S.pw_context.new_page()
+    if name:
+        S.tab_tags[id(page)] = name
     S.pw_active_page = page
     await _apply_fp_cdp(page)  # 新 tab 同步网络层 Client Hints（指纹档案非 real 时）
-    await _add_log("INFO", f"[Tab] new tab #{len(S.pw_context.pages)-1} {url[:80]}")
+    await _add_log("INFO", f"[Tab] new tab #{len(S.pw_context.pages)-1} tab={name or '(unnamed)'} {url[:80]}")
     if url != "about:blank":
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -456,9 +482,9 @@ async def pw_new_tab(params):
     await asyncio.sleep(0.5)
     try:
         shot = await page.screenshot(type="png")
-        return {"result": {"status": "ok", "index": len(S.pw_context.pages)-1, "url": page.url,
+        return {"result": {"status": "ok", "tab": name, "index": len(S.pw_context.pages)-1, "url": page.url,
                            "image": base64.b64encode(shot).decode("utf-8")}}
     except Exception:
-        return {"result": {"status": "ok", "index": len(S.pw_context.pages)-1, "url": page.url}}
+        return {"result": {"status": "ok", "tab": name, "index": len(S.pw_context.pages)-1, "url": page.url}}
 
 

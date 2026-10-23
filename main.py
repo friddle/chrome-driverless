@@ -33,6 +33,23 @@ async def mcp_handler(req: MCPRequest):
     return await _dispatch(method, params)
 
 
+# 不参与任务锁的方法：ai/cancel 必须随时可达（打断正在跑的长任务）
+_LOCK_BYPASS = {"ai/cancel"}
+
+
+async def _invoke(method, handler):
+    await S._add_log("INFO", f"[MCP] {method} called")
+    try:
+        result = await handler()
+        has_err = isinstance(result, dict) and "error" in result
+        await S._add_log("ERROR" if has_err else "INFO",
+                         f"[MCP] {method} {'error: ' + result['error'].get('message','') if has_err else 'success'}")
+        return result
+    except Exception as e:
+        await S._add_log("ERROR", f"[MCP] {method} exception: {e}")
+        return {"error": {"code": -1, "message": str(e)}}
+
+
 async def _dispatch(method, params):
     handlers = {
         "pw/screenshot": lambda: A.pw_screenshot(params),
@@ -101,16 +118,26 @@ async def _dispatch(method, params):
     handler = handlers.get(method)
     if not handler:
         return {"error": {"code": -32601, "message": f"Method not found: {method}"}}
-    await S._add_log("INFO", f"[MCP] {method} called")
-    try:
-        result = await handler()
-        has_err = isinstance(result, dict) and "error" in result
-        await S._add_log("ERROR" if has_err else "INFO",
-                         f"[MCP] {method} {'error: ' + result['error'].get('message','') if has_err else 'success'}")
-        return result
-    except Exception as e:
-        await S._add_log("ERROR", f"[MCP] {method} exception: {e}")
-        return {"error": {"code": -1, "message": str(e)}}
+    # 任务锁（乐观锁语义：上锁后才执行，一个请求结束才轮到下一个）：
+    #   - params 带 tab 名（pw/new_tab {tab} 创建时命名的）→ 按 tab 上锁：
+    #     同名 tab 串行，不同 tab 可同时操作（单 profile 多 tab 并发模式）；
+    #   - 不带 tab → 全局锁，维持原单浏览器串行语义不变。
+    tab = str(params.get("tab") or "").strip() if isinstance(params, dict) else ""
+    if method in _LOCK_BYPASS:
+        return await _invoke(method, handler)
+    if tab:
+        async with S._tab_lock(tab):
+            S.tab_busy[tab] = True
+            try:
+                return await _invoke(method, handler)
+            finally:
+                S.tab_busy[tab] = False
+    async with S.task_lock:
+        S.task_busy = True
+        try:
+            return await _invoke(method, handler)
+        finally:
+            S.task_busy = False
 
 
 @app.on_event("startup")

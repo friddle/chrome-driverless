@@ -84,7 +84,7 @@ docker run -d -p 9223:9223 -v chrome-data:/app/data \
 | `pw/evaluate` | 在当前页执行 JS |
 | `pw/elements` | 列出可交互元素（id / selector / 坐标） |
 | `pw/auto_login` | 环境变量驱动的表单登录（含二维码→密码 Tab 切换） |
-| `pw/tabs`, `pw/tab_select`, `pw/tab_close`, `pw/tab_close_all`, `pw/tab_tag`, `pw/new_tab` | 浏览器多 Tab 管理 |
+| `pw/tabs`, `pw/tab_select`, `pw/tab_close`, `pw/tab_close_all`, `pw/tab_tag`, `pw/new_tab` | 浏览器多 Tab 管理（`pw/new_tab {tab: 名}` 命名创建，幂等复用，返回 tab 名） |
 | `pw/profile_list`, `pw/profile_set` | 多 Profile 隔离登录态 |
 | `pw/save_auth` | 将当前登录态导出为 auth.json |
 | `pw/set_proxy` | 开关浏览器代理（时区对齐出口） |
@@ -99,6 +99,16 @@ docker run -d -p 9223:9223 -v chrome-data:/app/data \
 | `human/stealth_audit` | 真人模式内 stealth 审计 |
 | `fp/set` | 指纹档案：`real` \| `chrome_win` \| `chrome_mac` \| `safari_mac` |
 | `ai/config_get`, `ai/config_set`, `ai/test`, `ai/cancel` | AI 任务配置 / 测试 / 取消 |
+
+### 多 tab 并发与 per-tab 锁
+
+同一个 profile 的浏览器支持多 tab 同时操作。约定：
+
+1. `pw/new_tab {tab: "my-task", url: ...}` 创建（或复用）命名 tab，响应里带 `tab` 名；
+2. 后续任何 `pw/*` 调用带 `{tab: "my-task"}` 即在该 tab 上执行（按名定位，找不到报 `tab not found`）；
+3. 锁粒度在 tab：同名 tab 的请求**串行**——上一个请求结束后才执行下一个（调用前自动上锁，无需手动管理）；不同 tab 之间**并发**；
+4. 不带 `tab` 参数的调用走全局锁（单浏览器串行，语义不变）；`ai/cancel` 不受锁限制，随时可打断长任务；
+5. `/debug/status` 的 `tab_busy` 展示各命名 tab 是否有任务在跑。
 
 ## 模块结构
 
